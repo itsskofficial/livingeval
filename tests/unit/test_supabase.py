@@ -254,12 +254,19 @@ def test_the_whole_platform_runs_on_the_local_stack(stack, monkeypatch):
     from livingeval.serve.app import AppState, create_app
     from livingeval.serve.worker import run_once
 
+    monkeypatch.setenv("SUPABASE_URL", stack.api_url)
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", stack.service_role_key)
+    # Scope to the corpus this test seeds. The local stack is a real shared database and
+    # may well hold somebody else's traces - a demo corpus, another agent - and those
+    # carry no ground-truth label, so the oracle judge this test relies on raises on the
+    # first one it meets. Without this the test passes only on an empty database, which
+    # is the least interesting case it could cover.
+    monkeypatch.setenv("LIVINGEVAL_TRACE_SOURCE", "synthetic")
+
     settings = Settings.load(
         database_url=stack.db_url,
         artifact_url="supabase://livingeval-artifacts/pytest-run",
     )
-    monkeypatch.setenv("SUPABASE_URL", stack.api_url)
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", stack.service_role_key)
 
     state = AppState(settings=settings)
     try:

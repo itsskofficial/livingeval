@@ -98,7 +98,10 @@ class AppState:
         return from_spec(self.judge_spec)
 
     def traces(self, limit: int | None = None):
-        return self.store.get_traces(limit=limit or self.settings.trace_limit)
+        return self.store.get_traces(
+            limit=limit or self.settings.trace_limit,
+            source=self.settings.trace_source,
+        )
 
     def space_and_clustering(self, traces, force: bool = False):
         """Fit the space and clustering once and reuse them.

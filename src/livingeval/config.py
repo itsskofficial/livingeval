@@ -82,6 +82,11 @@ class Settings:
     embed_spec: str | None = None
     seed: int = 0
     trace_limit: int = 20_000
+    #: Analyse only traces from one ingestion source. A store can hold traces from more
+    #: than one agent - two services writing to the same Postgres, or a demo corpus
+    #: sitting beside real traffic - and mixing them silently blends two populations
+    #: into one coverage number. `None` means every source.
+    trace_source: str | None = None
 
     # -- the server ------------------------------------------------------------
     host: str = "127.0.0.1"
@@ -120,6 +125,7 @@ class Settings:
             embed_spec=os.environ.get("LIVINGEVAL_EMBED") or None,
             seed=_int("LIVINGEVAL_SEED", 0),
             trace_limit=_int("LIVINGEVAL_TRACE_LIMIT", 20_000),
+            trace_source=os.environ.get("LIVINGEVAL_TRACE_SOURCE") or None,
             host=os.environ.get("LIVINGEVAL_HOST", "127.0.0.1"),
             port=_int("LIVINGEVAL_PORT", 8000),
             api_key=os.environ.get("LIVINGEVAL_API_KEY") or None,
@@ -228,6 +234,7 @@ class Settings:
             "db_sslmode": self.db_sslmode or ("require" if self.uses_postgres else None),
             "artifacts": self.artifact_url if reveal else redact(self.artifact_url, "url"),
             "suite": self.suite_name,
+            "trace_source": self.trace_source,
             "judge": self.judge_spec,
             "embedder": self.embed_spec or "tfidf+svd (default)",
             "host": self.host,
