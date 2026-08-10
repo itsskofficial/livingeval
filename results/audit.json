@@ -1,0 +1,1009 @@
+{
+  "schema": 1,
+  "livingeval": "0.1.0",
+  "meta": {
+    "python": "3.12.9",
+    "platform": "Windows",
+    "audit": "livingeval staleness audit",
+    "quick": true,
+    "seconds": 21.3,
+    "config": {
+      "n_traces": 900,
+      "n_windows": 4,
+      "n_cases": 120,
+      "n_sim": 60,
+      "n_ladder": 400,
+      "sizes": [
+        30,
+        100
+      ]
+    },
+    "per_cluster_depths": {
+      "0": "keyword",
+      "1": "keyword",
+      "10": "keyword",
+      "11": "none",
+      "2": "none",
+      "3": "none",
+      "4": "keyword",
+      "5": "keyword",
+      "6": "none",
+      "7": "none",
+      "8": "none",
+      "9": "keyword"
+    },
+    "frozen_score": 0.95
+  },
+  "results": [
+    {
+      "kind": "decay",
+      "label": "frozen",
+      "regression": "random cluster (effect=0.8)",
+      "crossover": 0,
+      "worst_crossover": 0,
+      "points": [
+        {
+          "window": 0,
+          "t_start": 1767225600.0,
+          "t_end": 1769033945.272525,
+          "n_traces": 225,
+          "coverage": 0.7066666666666667,
+          "power": 0.43157894736842106,
+          "power_lo": 0.25,
+          "power_hi": 0.6833333333333333,
+          "n_affected_cases": 12,
+          "affected_traffic_share": 0.76,
+          "worst_power": 0.25,
+          "worst_cluster": 1
+        },
+        {
+          "window": 1,
+          "t_start": 1769042018.2424917,
+          "t_end": 1770850363.5150168,
+          "n_traces": 225,
+          "coverage": 0.47555555555555556,
+          "power": 0.4613295880149813,
+          "power_lo": 0.11666666666666667,
+          "power_hi": 0.9,
+          "n_affected_cases": 11,
+          "affected_traffic_share": 0.7911111111111111,
+          "worst_power": 0.11666666666666667,
+          "worst_cluster": 0
+        },
+        {
+          "window": 2,
+          "t_start": 1770858436.4849832,
+          "t_end": 1772666781.7575083,
+          "n_traces": 225,
+          "coverage": 0.38222222222222224,
+          "power": 0.3560521415270019,
+          "power_lo": 0.0,
+          "power_hi": 0.6166666666666667,
+          "n_affected_cases": 16,
+          "affected_traffic_share": 0.7955555555555556,
+          "worst_power": 0.0,
+          "worst_cluster": 6
+        },
+        {
+          "window": 3,
+          "t_start": 1772674854.727475,
+          "t_end": 1774483200.0,
+          "n_traces": 225,
+          "coverage": 0.3466666666666667,
+          "power": 0.4882575757575757,
+          "power_lo": 0.0,
+          "power_hi": 0.9666666666666667,
+          "n_affected_cases": 16,
+          "affected_traffic_share": 0.7822222222222223,
+          "worst_power": 0.0,
+          "worst_cluster": 1
+        }
+      ],
+      "meta": {
+        "n_windows": 4,
+        "seed": 0,
+        "kind": "expected",
+        "top_clusters": 8
+      }
+    },
+    {
+      "kind": "decay",
+      "label": "mined",
+      "regression": "random cluster (effect=0.8)",
+      "crossover": 0,
+      "worst_crossover": 0,
+      "points": [
+        {
+          "window": 0,
+          "t_start": 1767225600.0,
+          "t_end": 1769033945.272525,
+          "n_traces": 225,
+          "coverage": 0.7066666666666667,
+          "power": 0.42007797270955166,
+          "power_lo": 0.3,
+          "power_hi": 0.6666666666666666,
+          "n_affected_cases": 14,
+          "affected_traffic_share": 0.76,
+          "worst_power": 0.3,
+          "worst_cluster": 7
+        },
+        {
+          "window": 1,
+          "t_start": 1769042018.2424917,
+          "t_end": 1770850363.5150168,
+          "n_traces": 225,
+          "coverage": 0.5066666666666667,
+          "power": 0.4844569288389513,
+          "power_lo": 0.1,
+          "power_hi": 0.7833333333333333,
+          "n_affected_cases": 11,
+          "affected_traffic_share": 0.7911111111111111,
+          "worst_power": 0.1,
+          "worst_cluster": 0
+        },
+        {
+          "window": 2,
+          "t_start": 1770858436.4849832,
+          "t_end": 1772666781.7575083,
+          "n_traces": 225,
+          "coverage": 0.49777777777777776,
+          "power": 0.45726256983240227,
+          "power_lo": 0.016666666666666666,
+          "power_hi": 0.9333333333333333,
+          "n_affected_cases": 9,
+          "affected_traffic_share": 0.7955555555555556,
+          "worst_power": 0.016666666666666666,
+          "worst_cluster": 1
+        },
+        {
+          "window": 3,
+          "t_start": 1772674854.727475,
+          "t_end": 1774483200.0,
+          "n_traces": 225,
+          "coverage": 0.5555555555555556,
+          "power": 0.48475378787878787,
+          "power_lo": 0.06666666666666667,
+          "power_hi": 0.95,
+          "n_affected_cases": 10,
+          "affected_traffic_share": 0.7822222222222223,
+          "worst_power": 0.06666666666666667,
+          "worst_cluster": 9
+        }
+      ],
+      "meta": {
+        "n_windows": 4,
+        "seed": 0,
+        "kind": "expected",
+        "top_clusters": 8
+      }
+    },
+    {
+      "kind": "power",
+      "suite": "frozen",
+      "regression": "is_new_intent=True(effect=0.5)",
+      "effect": 0.5,
+      "n_sim": 120,
+      "power": {
+        "point": 0.008333333333333333,
+        "lo": 0.0014725557333420923,
+        "hi": 0.045696291245049675,
+        "level": 0.95
+      },
+      "n_affected_cases": 0,
+      "n_gateable": 120,
+      "affected_fraction": 0.0,
+      "mode": "paired",
+      "is_blind": true,
+      "blind_rate": 0.0,
+      "meta": {
+        "resample_cases": false,
+        "flake": 0.05,
+        "description": "only traces with meta['is_new_intent'] == True"
+      }
+    },
+    {
+      "kind": "power",
+      "suite": "mined",
+      "regression": "is_new_intent=True(effect=0.5)",
+      "effect": 0.5,
+      "n_sim": 120,
+      "power": {
+        "point": 0.4,
+        "lo": 0.31676408120837146,
+        "hi": 0.4894397520753693,
+        "level": 0.95
+      },
+      "n_affected_cases": 19,
+      "n_gateable": 120,
+      "affected_fraction": 0.15833333333333333,
+      "mode": "paired",
+      "is_blind": false,
+      "blind_rate": 0.0,
+      "meta": {
+        "resample_cases": false,
+        "flake": 0.05,
+        "description": "only traces with meta['is_new_intent'] == True"
+      }
+    },
+    {
+      "kind": "coverage",
+      "suite": "frozen",
+      "status": "OK",
+      "n_cases": 120,
+      "n_traces": 225,
+      "coverage": 0.3466666666666667,
+      "ci": {
+        "point": 0.3466666666666667,
+        "lo": 0.2875268099076677,
+        "hi": 0.41095439906738923,
+        "level": 0.95
+      },
+      "radius": 0.24022296804833942,
+      "q": 50.0,
+      "per_cluster": {
+        "0": 0.6153846153846154,
+        "1": 0.0,
+        "2": 0.5555555555555556,
+        "3": 0.0,
+        "4": 0.3055555555555556,
+        "5": 0.25,
+        "6": 0.631578947368421,
+        "7": 0.4166666666666667,
+        "8": 0.2727272727272727,
+        "9": 0.0,
+        "10": 0.625,
+        "11": 0.5
+      },
+      "cluster_shares": {
+        "0": 0.057777777777777775,
+        "1": 0.10666666666666667,
+        "2": 0.08,
+        "3": 0.05333333333333334,
+        "4": 0.16,
+        "5": 0.05333333333333334,
+        "6": 0.08444444444444445,
+        "7": 0.05333333333333334,
+        "8": 0.09777777777777778,
+        "9": 0.06666666666666667,
+        "10": 0.07111111111111111,
+        "11": 0.11555555555555555
+      },
+      "cluster_terms": {
+        "0": "the seat, upgrade can, upgrade, seat upgrade, seat",
+        "1": "was reverted, reverted, reverted on, pending, confirmation",
+        "2": "my parcel, parcel, never arrived, arrived for, arrived",
+        "3": "chain, chain for, the wrong, went, wrong",
+        "4": "sync, sync can, nightly sync, the nightly, nightly",
+        "5": "me out, me, locked, locked me, out during",
+        "6": "marked, delivered for, delivered, marked delivered, was marked",
+        "7": "the annual, renewal, annual, annual renewal, renewal can",
+        "8": "stopped working, stopped, working, working after, yesterday maintenance",
+        "9": "zero, shows zero, balance, zero balance, balance after",
+        "10": "was overbilled, overbilled on, overbilled, the overage, fee can",
+        "11": "does not, does, cover, cover the, not cover"
+      },
+      "sensitivity": {
+        "25.0": 0.2088888888888889,
+        "50.0": 0.3466666666666667,
+        "75.0": 0.6666666666666666
+      },
+      "representation": "tfidf+svd(64)",
+      "view": "request",
+      "n_components": 64,
+      "embedding_dim": 64,
+      "uses_embeddings": false
+    },
+    {
+      "kind": "blindspots",
+      "suite": "frozen",
+      "threshold": 0.3,
+      "blind_clusters": [
+        1,
+        8,
+        9,
+        3,
+        5
+      ],
+      "spots": [
+        {
+          "cluster": 4,
+          "n_traces": 36,
+          "traffic_share": 0.16,
+          "coverage": 0.3055555555555556,
+          "n_suite_cases": 29,
+          "terms": "sync, sync can, nightly sync, the nightly, nightly",
+          "severity": 0.1111111111111111,
+          "example_trace_id": "t000682"
+        },
+        {
+          "cluster": 1,
+          "n_traces": 24,
+          "traffic_share": 0.10666666666666667,
+          "coverage": 0.0,
+          "n_suite_cases": 0,
+          "terms": "was reverted, reverted, reverted on, pending, confirmation",
+          "severity": 0.10666666666666667,
+          "example_trace_id": "t000700"
+        },
+        {
+          "cluster": 8,
+          "n_traces": 22,
+          "traffic_share": 0.09777777777777778,
+          "coverage": 0.2727272727272727,
+          "n_suite_cases": 13,
+          "terms": "stopped working, stopped, working, working after, yesterday maintenance",
+          "severity": 0.07111111111111111,
+          "example_trace_id": "t000676"
+        },
+        {
+          "cluster": 9,
+          "n_traces": 15,
+          "traffic_share": 0.06666666666666667,
+          "coverage": 0.0,
+          "n_suite_cases": 0,
+          "terms": "zero, shows zero, balance, zero balance, balance after",
+          "severity": 0.06666666666666667,
+          "example_trace_id": "t000677"
+        },
+        {
+          "cluster": 11,
+          "n_traces": 26,
+          "traffic_share": 0.11555555555555555,
+          "coverage": 0.5,
+          "n_suite_cases": 17,
+          "terms": "does not, does, cover, cover the, not cover",
+          "severity": 0.057777777777777775,
+          "example_trace_id": "t000681"
+        },
+        {
+          "cluster": 3,
+          "n_traces": 12,
+          "traffic_share": 0.05333333333333334,
+          "coverage": 0.0,
+          "n_suite_cases": 0,
+          "terms": "chain, chain for, the wrong, went, wrong",
+          "severity": 0.05333333333333334,
+          "example_trace_id": "t000684"
+        },
+        {
+          "cluster": 5,
+          "n_traces": 12,
+          "traffic_share": 0.05333333333333334,
+          "coverage": 0.25,
+          "n_suite_cases": 4,
+          "terms": "me out, me, locked, locked me, out during",
+          "severity": 0.04,
+          "example_trace_id": "t000689"
+        },
+        {
+          "cluster": 2,
+          "n_traces": 18,
+          "traffic_share": 0.08,
+          "coverage": 0.5555555555555556,
+          "n_suite_cases": 13,
+          "terms": "my parcel, parcel, never arrived, arrived for, arrived",
+          "severity": 0.035555555555555556,
+          "example_trace_id": "t000675"
+        },
+        {
+          "cluster": 6,
+          "n_traces": 19,
+          "traffic_share": 0.08444444444444445,
+          "coverage": 0.631578947368421,
+          "n_suite_cases": 12,
+          "terms": "marked, delivered for, delivered, marked delivered, was marked",
+          "severity": 0.031111111111111114,
+          "example_trace_id": "t000679"
+        },
+        {
+          "cluster": 7,
+          "n_traces": 12,
+          "traffic_share": 0.05333333333333334,
+          "coverage": 0.4166666666666667,
+          "n_suite_cases": 9,
+          "terms": "the annual, renewal, annual, annual renewal, renewal can",
+          "severity": 0.03111111111111111,
+          "example_trace_id": "t000688"
+        },
+        {
+          "cluster": 10,
+          "n_traces": 16,
+          "traffic_share": 0.07111111111111111,
+          "coverage": 0.625,
+          "n_suite_cases": 10,
+          "terms": "was overbilled, overbilled on, overbilled, the overage, fee can",
+          "severity": 0.026666666666666665,
+          "example_trace_id": "t000752"
+        },
+        {
+          "cluster": 0,
+          "n_traces": 13,
+          "traffic_share": 0.057777777777777775,
+          "coverage": 0.6153846153846154,
+          "n_suite_cases": 13,
+          "terms": "the seat, upgrade can, upgrade, seat upgrade, seat",
+          "severity": 0.02222222222222222,
+          "example_trace_id": "t000712"
+        }
+      ]
+    },
+    {
+      "kind": "false_alarm",
+      "n_cases": 30,
+      "baseline_score": 0.9666666666666667,
+      "threshold": 0.9,
+      "threshold_rate": 0.17777777777777778,
+      "threshold_ci": [
+        0.12883593460378476,
+        0.24018560850125473
+      ],
+      "paired_rate": 0.0,
+      "paired_ci": [
+        0.0,
+        0.02089549792161305
+      ],
+      "flake": 0.05
+    },
+    {
+      "kind": "false_alarm",
+      "n_cases": 100,
+      "baseline_score": 0.91,
+      "threshold": 0.849,
+      "threshold_rate": 0.12777777777777777,
+      "threshold_ci": [
+        0.08667497947852411,
+        0.18443611341867666
+      ],
+      "paired_rate": 0.0,
+      "paired_ci": [
+        0.0,
+        0.02089549792161305
+      ],
+      "flake": 0.05
+    },
+    {
+      "kind": "ladder",
+      "judge": "support_triage-judge",
+      "subgroup": null,
+      "n": 400,
+      "n_groups": 134,
+      "cv": "session",
+      "n_splits": 5,
+      "view": "full",
+      "threshold": 0.8,
+      "judge_pass_rate": 0.7175,
+      "judge_seconds_per_turn": 1.8667496624402702e-06,
+      "judge_cost_per_1k_usd": 0.0,
+      "judge_depth": "keyword",
+      "speedup": 0.08133631002032538,
+      "reading": "Deploy `keyword` for per-turn online scoring. It also means this judge's decision is reproducible from single keyword on this traffic, which is very shallow: treat downstream numbers as measuring surface form unless a per-cluster ladder says otherwise.",
+      "rungs": [
+        {
+          "rung": "majority",
+          "kappa": {
+            "point": 0.0,
+            "lo": 0.0,
+            "hi": 0.0,
+            "level": 0.95
+          },
+          "accuracy": 0.7175,
+          "kappa_vs_human": 0.0,
+          "seconds_per_turn": 1.0945001849904656e-06,
+          "seconds_per_turn_batch": 4.249741323292256e-09,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "length",
+          "kappa": {
+            "point": 0.1254333438386387,
+            "lo": 0.04156731416589871,
+            "hi": 0.21614792603633481,
+            "level": 0.95
+          },
+          "accuracy": 0.7225,
+          "kappa_vs_human": 0.1332426920462271,
+          "seconds_per_turn": 4.413500020746142e-05,
+          "seconds_per_turn_batch": 4.4799991883337497e-07,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "keyword",
+          "kappa": {
+            "point": 0.8792654254305141,
+            "lo": 0.80892232113255,
+            "hi": 0.919563374694639,
+            "level": 0.95
+          },
+          "accuracy": 0.9525,
+          "kappa_vs_human": 1.0,
+          "seconds_per_turn": 2.2951000137254595e-05,
+          "seconds_per_turn_batch": 2.1367750014178456e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "\"am\" present -> fail",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "bow",
+          "kappa": {
+            "point": 0.8792654254305141,
+            "lo": 0.80892232113255,
+            "hi": 0.919563374694639,
+            "level": 0.95
+          },
+          "accuracy": 0.9525,
+          "kappa_vs_human": 1.0,
+          "seconds_per_turn": 0.0003809985000407323,
+          "seconds_per_turn_batch": 4.3281249818392096e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "charngram",
+          "kappa": {
+            "point": 0.8732613035074933,
+            "lo": 0.8046419464131804,
+            "hi": 0.9134356674070875,
+            "level": 0.95
+          },
+          "accuracy": 0.95,
+          "kappa_vs_human": 0.9934413327211912,
+          "seconds_per_turn": 0.0006607259996235371,
+          "seconds_per_turn_batch": 0.00028590125002665446,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        }
+      ],
+      "meta": {
+        "scenario": "support_triage",
+        "mechanism": "shortcut",
+        "designed_depth": "keyword",
+        "question": "did the agent resolve the request, or refuse it?",
+        "failure": "the agent emits one fixed inability phrase"
+      }
+    },
+    {
+      "kind": "ladder",
+      "judge": "rag_grounding-judge",
+      "subgroup": null,
+      "n": 400,
+      "n_groups": 134,
+      "cv": "session",
+      "n_splits": 5,
+      "view": "full",
+      "threshold": 0.8,
+      "judge_pass_rate": 0.7225,
+      "judge_seconds_per_turn": 2.760500065051019e-06,
+      "judge_cost_per_1k_usd": 0.0,
+      "judge_depth": "bow",
+      "speedup": 0.007526176847771536,
+      "reading": "Deploy `bow` for per-turn online scoring. It also means this judge's decision is reproducible from bow on this traffic, which is shallow: treat downstream numbers as measuring surface form unless a per-cluster ladder says otherwise.",
+      "rungs": [
+        {
+          "rung": "majority",
+          "kappa": {
+            "point": 0.0,
+            "lo": 0.0,
+            "hi": 0.0,
+            "level": 0.95
+          },
+          "accuracy": 0.7225,
+          "kappa_vs_human": 0.0,
+          "seconds_per_turn": 1.137999934144318e-06,
+          "seconds_per_turn_batch": 5.500041879713535e-09,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "length",
+          "kappa": {
+            "point": 0.22519453628560923,
+            "lo": 0.1188722069640277,
+            "hi": 0.3102364329888498,
+            "level": 0.95
+          },
+          "accuracy": 0.71,
+          "kappa_vs_human": 0.26191696565863654,
+          "seconds_per_turn": 4.354599979706108e-05,
+          "seconds_per_turn_batch": 5.902501288801432e-07,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "keyword",
+          "kappa": {
+            "point": 0.3059198579556921,
+            "lo": 0.19279896839096503,
+            "hi": 0.390447483355828,
+            "level": 0.95
+          },
+          "accuracy": 0.785,
+          "kappa_vs_human": 0.36013470848242485,
+          "seconds_per_turn": 2.3981499834917487e-05,
+          "seconds_per_turn_batch": 2.1609750110656023e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "\"rather\" present -> fail",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "bow",
+          "kappa": {
+            "point": 0.86129937269489,
+            "lo": 0.7677381833103525,
+            "hi": 0.9146413787230109,
+            "level": 0.95
+          },
+          "accuracy": 0.945,
+          "kappa_vs_human": 0.9871650890421948,
+          "seconds_per_turn": 0.00036678650008980184,
+          "seconds_per_turn_batch": 5.629375024000183e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "charngram",
+          "kappa": {
+            "point": 0.86129937269489,
+            "lo": 0.778692290797877,
+            "hi": 0.9114994361286972,
+            "level": 0.95
+          },
+          "accuracy": 0.945,
+          "kappa_vs_human": 0.9871650890421948,
+          "seconds_per_turn": 0.0007928750000428408,
+          "seconds_per_turn_batch": 0.00027885974996024745,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        }
+      ],
+      "meta": {
+        "scenario": "rag_grounding",
+        "mechanism": "lexical",
+        "designed_depth": "bow",
+        "question": "is the answer grounded in the record, or hedged from memory?",
+        "failure": "any of twelve unrelated hedges appears"
+      }
+    },
+    {
+      "kind": "ladder",
+      "judge": "code_patch-judge",
+      "subgroup": null,
+      "n": 400,
+      "n_groups": 134,
+      "cv": "session",
+      "n_splits": 5,
+      "view": "full",
+      "threshold": 0.8,
+      "judge_pass_rate": 0.735,
+      "judge_seconds_per_turn": 1.9004993373528124e-06,
+      "judge_cost_per_1k_usd": 0.0,
+      "judge_depth": "charngram",
+      "speedup": 0.0015908898923422512,
+      "reading": "Deploy `charngram` for per-turn online scoring. It also means this judge's decision is reproducible from character n-grams on this traffic, which is shallow: treat downstream numbers as measuring surface form unless a per-cluster ladder says otherwise.",
+      "rungs": [
+        {
+          "rung": "majority",
+          "kappa": {
+            "point": 0.0,
+            "lo": 0.0,
+            "hi": 0.0,
+            "level": 0.95
+          },
+          "accuracy": 0.735,
+          "kappa_vs_human": 0.0,
+          "seconds_per_turn": 9.615003364160657e-07,
+          "seconds_per_turn_batch": 4.74974513053894e-09,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "length",
+          "kappa": {
+            "point": 0.2946530147895333,
+            "lo": 0.17346946182799122,
+            "hi": 0.3941213511103277,
+            "level": 0.95
+          },
+          "accuracy": 0.7675,
+          "kappa_vs_human": 0.274304870834155,
+          "seconds_per_turn": 3.816650016233325e-05,
+          "seconds_per_turn_batch": 4.934999742545187e-07,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "keyword",
+          "kappa": {
+            "point": -0.02577825350102551,
+            "lo": -0.07327484296892255,
+            "hi": 0.03022694510092783,
+            "level": 0.95
+          },
+          "accuracy": 0.7125,
+          "kappa_vs_human": -0.02306635722066982,
+          "seconds_per_turn": 4.238899971824139e-05,
+          "seconds_per_turn_batch": 3.430800017667934e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "\"core encode\" present -> fail",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "bow",
+          "kappa": {
+            "point": -0.03342763119912249,
+            "lo": -0.12505700920014695,
+            "hi": 0.06583631670910438,
+            "level": 0.95
+          },
+          "accuracy": 0.5525,
+          "kappa_vs_human": -0.0513097567386035,
+          "seconds_per_turn": 0.0004121594998287037,
+          "seconds_per_turn_batch": 6.814624997787177e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "charngram",
+          "kappa": {
+            "point": 0.8871556588118155,
+            "lo": 0.8222838306308468,
+            "hi": 0.9344514848939993,
+            "level": 0.95
+          },
+          "accuracy": 0.9575,
+          "kappa_vs_human": 0.9727844871576798,
+          "seconds_per_turn": 0.0011946139996871351,
+          "seconds_per_turn_batch": 0.0007040709999273532,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        }
+      ],
+      "meta": {
+        "scenario": "code_patch",
+        "mechanism": "morphology",
+        "designed_depth": "charngram",
+        "question": "does the patch follow the repository's naming convention?",
+        "failure": "identifiers are rewritten in camelCase in a snake_case repo"
+      }
+    },
+    {
+      "kind": "ladder",
+      "judge": "tool_calling-judge",
+      "subgroup": null,
+      "n": 400,
+      "n_groups": 134,
+      "cv": "session",
+      "n_splits": 5,
+      "view": "full",
+      "threshold": 0.8,
+      "judge_pass_rate": 0.71,
+      "judge_seconds_per_turn": 0.00020420899876626207,
+      "judge_cost_per_1k_usd": 0.0,
+      "judge_depth": null,
+      "speedup": 0.21115876149768287,
+      "reading": "No rung below the judge reproduces it. Per-turn online scoring needs a real model - and the judge is doing something a bag of features cannot. Re-run with `finetune=True` to find out whether a fine-tuned model can.",
+      "rungs": [
+        {
+          "rung": "majority",
+          "kappa": {
+            "point": 0.0,
+            "lo": 0.0,
+            "hi": 0.0,
+            "level": 0.95
+          },
+          "accuracy": 0.71,
+          "kappa_vs_human": 0.0,
+          "seconds_per_turn": 1.2784998398274183e-06,
+          "seconds_per_turn_batch": 4.500034265220165e-09,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "length",
+          "kappa": {
+            "point": 0.07604251839738346,
+            "lo": 0.01222942480235478,
+            "hi": 0.1333842568891918,
+            "level": 0.95
+          },
+          "accuracy": 0.7175,
+          "kappa_vs_human": 0.07636031092821248,
+          "seconds_per_turn": 4.862100002355874e-05,
+          "seconds_per_turn_batch": 1.3477497850544751e-06,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "keyword",
+          "kappa": {
+            "point": -0.01971447994561532,
+            "lo": -0.03859080801144185,
+            "hi": -0.004953315217955103,
+            "level": 0.95
+          },
+          "accuracy": 0.7,
+          "kappa_vs_human": -0.01962293189688339,
+          "seconds_per_turn": 3.306550031993538e-05,
+          "seconds_per_turn_batch": 2.952025010017678e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "\"seat on\" present -> fail",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "bow",
+          "kappa": {
+            "point": 0.09689757756056093,
+            "lo": 0.008717428600462922,
+            "hi": 0.186556795170583,
+            "level": 0.95
+          },
+          "accuracy": 0.575,
+          "kappa_vs_human": 0.055185741893923244,
+          "seconds_per_turn": 0.00045007649983745066,
+          "seconds_per_turn_batch": 5.751974997110665e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "charngram",
+          "kappa": {
+            "point": 0.10352187833511203,
+            "lo": 0.02168745574683766,
+            "hi": 0.1793883945658395,
+            "level": 0.95
+          },
+          "accuracy": 0.58,
+          "kappa_vs_human": 0.06098219104155422,
+          "seconds_per_turn": 0.0009670875000301749,
+          "seconds_per_turn_batch": 0.00048344350012484937,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        }
+      ],
+      "meta": {
+        "scenario": "tool_calling",
+        "mechanism": "deep",
+        "designed_depth": "none",
+        "question": "does the agent's claim match what the tool returned?",
+        "failure": "the agent asserts the negation of the tool result"
+      }
+    },
+    {
+      "kind": "judge_validation",
+      "judge": "support_triage-judge",
+      "status": "VALIDATED",
+      "n": 400,
+      "kappa": {
+        "point": 0.8792654254305141,
+        "lo": 0.8247700107372471,
+        "hi": 0.9308819067426498,
+        "level": 0.95
+      },
+      "band": "almost perfect",
+      "raw_agreement": 0.9525,
+      "false_pass_rate": {
+        "point": 0.0392156862745098,
+        "lo": 0.015354071528489173,
+        "hi": 0.09652513868491805,
+        "level": 0.95
+      },
+      "false_fail_rate": {
+        "point": 0.050335570469798654,
+        "lo": 0.03073813376748128,
+        "hi": 0.08137853487344687,
+        "level": 0.95
+      },
+      "human_pass_rate": 0.745,
+      "judge_pass_rate": 0.7175,
+      "cost_usd": 0.0,
+      "latency_s": 2.7310012956149878e-06
+    },
+    {
+      "kind": "judge_validation",
+      "judge": "rag_grounding-judge",
+      "status": "VALIDATED",
+      "n": 400,
+      "kappa": {
+        "point": 0.8621769772905246,
+        "lo": 0.7962023115764328,
+        "hi": 0.9162008068045616,
+        "level": 0.95
+      },
+      "band": "almost perfect",
+      "raw_agreement": 0.945,
+      "false_pass_rate": {
+        "point": 0.05714285714285714,
+        "lo": 0.026449634437321692,
+        "hi": 0.11909654798560422,
+        "level": 0.95
+      },
+      "false_fail_rate": {
+        "point": 0.05423728813559322,
+        "lo": 0.03365740300166753,
+        "hi": 0.08627729067214136,
+        "level": 0.95
+      },
+      "human_pass_rate": 0.7375,
+      "judge_pass_rate": 0.7125,
+      "cost_usd": 0.0,
+      "latency_s": 1.996499195229262e-06
+    },
+    {
+      "kind": "judge_validation",
+      "judge": "code_patch-judge",
+      "status": "VALIDATED",
+      "n": 400,
+      "kappa": {
+        "point": 0.8885465154395857,
+        "lo": 0.830423823784957,
+        "hi": 0.9346538324632178,
+        "level": 0.95
+      },
+      "band": "almost perfect",
+      "raw_agreement": 0.9575,
+      "false_pass_rate": {
+        "point": 0.050505050505050504,
+        "lo": 0.021763234491416872,
+        "hi": 0.11282702686248858,
+        "level": 0.95
+      },
+      "false_fail_rate": {
+        "point": 0.03986710963455149,
+        "lo": 0.022950331727886387,
+        "hi": 0.06838061429369888,
+        "level": 0.95
+      },
+      "human_pass_rate": 0.7525,
+      "judge_pass_rate": 0.735,
+      "cost_usd": 0.0,
+      "latency_s": 3.881249867845327e-06
+    },
+    {
+      "kind": "judge_validation",
+      "judge": "tool_calling-judge",
+      "status": "VALIDATED",
+      "n": 400,
+      "kappa": {
+        "point": 0.8725140234574196,
+        "lo": 0.814540039942288,
+        "hi": 0.9268091978842757,
+        "level": 0.95
+      },
+      "band": "almost perfect",
+      "raw_agreement": 0.95,
+      "false_pass_rate": {
+        "point": 0.049019607843137254,
+        "lo": 0.0211175965489143,
+        "hi": 0.10965780068122896,
+        "level": 0.95
+      },
+      "false_fail_rate": {
+        "point": 0.050335570469798654,
+        "lo": 0.03073813376748128,
+        "hi": 0.08137853487344687,
+        "level": 0.95
+      },
+      "human_pass_rate": 0.745,
+      "judge_pass_rate": 0.72,
+      "cost_usd": 0.0,
+      "latency_s": 2.1735005429945887e-06
+    }
+  ]
+}

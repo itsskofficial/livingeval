@@ -1,0 +1,108 @@
+# The livingeval containers, against Supabase.
+#
+#   python scripts/dev.py up                            # start Supabase + seed
+#   docker compose -f deploy/docker-compose.yml up --build
+#   open http://localhost:8000
+#
+# **The database is Supabase, not a Postgres in this file.** Local Supabase (from
+# `supabase start`) is the same Postgres, the same pgBouncer, the same Storage API and
+# the same RLS as the cloud project you will deploy against — so the only thing that
+# changes on the way to AWS is credentials. A plain `postgres:16` service here would be
+# a different thing wearing the same name, and every Supabase-specific problem would go
+# undetected until deploy day.
+#
+# On Linux, replace `host.docker.internal` with `172.17.0.1` or run with
+# `--network host`.
+#
+# To point at Supabase Cloud instead, put the values in `deploy/.env`:
+#   LIVINGEVAL_DATABASE_URL=postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:6543/postgres
+#   SUPABASE_URL=https://<ref>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY=<service role key>
+
+name: livingeval
+
+x-supabase-env: &supabase-env
+  # Defaults are the local stack on livingeval's own 544xx ports.
+  LIVINGEVAL_DATABASE_URL: ${LIVINGEVAL_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54422/postgres}
+  SUPABASE_URL: ${SUPABASE_URL:-http://host.docker.internal:54421}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}
+  LIVINGEVAL_ARTIFACT_URL: ${LIVINGEVAL_ARTIFACT_URL:-supabase://livingeval-artifacts/livingeval}
+  LIVINGEVAL_SUITE: ${LIVINGEVAL_SUITE:-default}
+  LIVINGEVAL_JUDGE: ${LIVINGEVAL_JUDGE:-oracle}
+  LIVINGEVAL_EMBED: ${LIVINGEVAL_EMBED:-}
+  LIVINGEVAL_ENV: ${LIVINGEVAL_ENV:-compose}
+  # Keys for things with no local equivalent. Everything runs without them.
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+
+x-build: &build
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  # Migrations run once, in their own container, before anything serves. N replicas
+  # racing `CREATE TABLE` is silent and partial; a failed migration here fails loudly
+  # instead of leaving one task serving against a half-built schema.
+  migrate:
+    <<: *build
+    environment: *supabase-env
+    command: ["livingeval", "db", "migrate"]
+    restart: "no"
+
+  api:
+    <<: *build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${LIVINGEVAL_PORT:-8000}:8000"
+    environment:
+      <<: *supabase-env
+      # Reachable only from this host, so no key is required. Set one the moment it is
+      # reachable from anywhere else - the app refuses to bind publicly without it.
+      LIVINGEVAL_API_KEY: ${LIVINGEVAL_API_KEY:-}
+      LIVINGEVAL_ALLOW_INSECURE: ${LIVINGEVAL_ALLOW_INSECURE:-1}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    <<: *build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *supabase-env
+    command: ["livingeval", "worker", "--interval", "${LIVINGEVAL_WORKER_INTERVAL_S:-900}"]
+    restart: unless-stopped
+
+  # One-shot: fill an empty Supabase with the drifting corpus and a stale suite.
+  #   docker compose -f deploy/docker-compose.yml run --rm seed
+  seed:
+    <<: *build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *supabase-env
+    command:
+      - python
+      - -c
+      - |
+        from livingeval.config import Settings
+        from livingeval.serve import seed_demo
+        from livingeval.store import open_store
+        store = open_store(Settings.load().database_url)
+        if store.count_traces():
+            print(f"store already holds {store.count_traces()} traces; not seeding")
+        else:
+            print(seed_demo(store, n=2400, suite_size=200))
+    profiles: ["tools"]
+    restart: "no"

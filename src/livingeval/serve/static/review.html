@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>livingeval · review</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --panel2:#1d2130; --line:#272c3a;
+    --ink:#e8eaf0; --dim:#8b93a7; --dimmer:#5d6478;
+    --good:#3ecf8e; --bad:#ff5f56; --warn:#ffbd2e; --accent:#6c8cff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  header{display:flex;align-items:center;gap:16px;padding:18px 26px;
+    border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  h1{font-size:16px;margin:0}
+  .grow{flex:1}
+  .meta{color:var(--dim);font-family:var(--mono);font-size:12px}
+  input{background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;width:150px}
+  main{max-width:920px;margin:0 auto;padding:26px 22px 90px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+    padding:20px 22px;margin-bottom:16px}
+  .head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .tag{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:99px;
+    background:var(--panel2);color:var(--dim)}
+  .tag.sug-pass{background:rgba(62,207,142,.16);color:var(--good)}
+  .tag.sug-fail{background:rgba(255,95,86,.16);color:var(--bad)}
+  .reason{color:var(--dim);font-size:12.5px;margin-bottom:14px}
+  .turns{display:flex;flex-direction:column;gap:9px;margin-bottom:18px}
+  .turn{display:grid;grid-template-columns:82px 1fr;gap:12px;font-size:13.5px}
+  .role{font-family:var(--mono);font-size:11px;color:var(--dimmer);padding-top:3px;
+    text-transform:uppercase;letter-spacing:.05em}
+  .turn.user .body{background:var(--panel2);border-radius:8px;padding:9px 12px}
+  .turn.assistant .body{background:rgba(108,140,255,.09);border-radius:8px;padding:9px 12px}
+  .turn.tool .body{background:#12141c;border:1px solid var(--line);border-radius:8px;
+    padding:8px 11px;font-family:var(--mono);font-size:11.5px;color:var(--dim);overflow-x:auto}
+  button{border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    border-radius:8px;padding:9px 16px;font:inherit;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.pass{background:rgba(62,207,142,.15);border-color:rgba(62,207,142,.45);color:var(--good);font-weight:600}
+  button.fail{background:rgba(255,95,86,.15);border-color:rgba(255,95,86,.45);color:var(--bad);font-weight:600}
+  button.skip{color:var(--dim)}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  kbd{font-family:var(--mono);font-size:10px;background:var(--bg);border:1px solid var(--line);
+    border-radius:4px;padding:1px 5px;color:var(--dimmer)}
+  .empty{text-align:center;padding:60px 20px;color:var(--dim)}
+  .empty b{color:var(--ink);display:block;font-size:16px;margin-bottom:8px}
+  .why{color:var(--dimmer);font-size:12px;border-top:1px solid var(--line);
+    padding-top:13px;margin-top:4px;line-height:1.65}
+  .bar{position:fixed;bottom:0;left:0;right:0;background:var(--panel);
+    border-top:1px solid var(--line);padding:11px 26px;display:flex;gap:14px;
+    align-items:center;font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>Review queue</h1>
+  <span class="meta" id="count">…</span>
+  <div class="grow"></div>
+  <label class="meta">reviewer <input id="who" placeholder="your name"></label>
+  <a href="/">← dashboard</a>
+</header>
+
+<main id="main"></main>
+
+<div class="bar">
+  <span id="progress">—</span>
+  <div class="grow"></div>
+  <button onclick="promote()">Promote confirmed → suite</button>
+  <span class="meta" id="promoted"></span>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let queue = [], idx = 0;
+
+const WHY = `Mined cases enter the suite as <b>unconfirmed</b> and are excluded from every gate
+decision until a named reviewer signs off. That is deliberate: a suite that grows by
+absorbing production traces will, unwatched, converge on asserting that the model's
+current behaviour is correct by definition — it passes because the cases were harvested
+from what it already does. The defence is procedural, so confirmation records who did it.
+<b>Correcting the judge here is the most valuable thing you can do:</b> those are the cases
+where the judge was wrong, and they are what makes the suite better rather than bigger.`;
+
+function name(){
+  const v = $("who").value.trim();
+  if(v) localStorage.setItem("le_reviewer", v);
+  return v;
+}
+
+async function load(){
+  const j = await (await fetch("/v1/proposals?status=pending&limit=200")).json();
+  queue = j.proposals || []; idx = 0;
+  $("count").textContent = `${queue.length} pending`;
+  draw();
+}
+
+function draw(){
+  if(idx >= queue.length){
+    $("main").innerHTML = `<div class="card empty"><b>Queue empty</b>
+      Nothing left to review. Mine more from the
+      <a href="/">dashboard</a>, then promote the confirmed ones below.
+      <div class="why" style="text-align:left;margin-top:26px">${WHY}</div></div>`;
+    $("progress").textContent = `${queue.length} reviewed this session`;
+    return;
+  }
+  const p = queue[idx];
+  const sug = p.suggested;
+  const turns = (p.turns || []).map(t => `
+    <div class="turn ${t.role}">
+      <div class="role">${t.role}${t.name ? ":" + t.name : ""}</div>
+      <div class="body">${esc(t.content)}</div>
+    </div>`).join("");
+  $("main").innerHTML = `
+    <div class="card">
+      <div class="head">
+        <span class="tag">${p.trace_id}</span>
+        <span class="tag">cluster ${p.cluster}</span>
+        <span class="tag ${sug===1?'sug-pass':'sug-fail'}">judge says ${sug===1?"PASS":"FAIL"}</span>
+        ${p.human_label!=null?`<span class="tag">ground truth ${p.human_label===1?"PASS":"FAIL"}</span>`:""}
+      </div>
+      <div class="reason">${esc(p.reason || "")}</div>
+      <div class="turns">${turns}</div>
+      <div class="actions">
+        <button class="pass" onclick="decide(1)">Correct — PASS <kbd>p</kbd></button>
+        <button class="fail" onclick="decide(0)">Correct — FAIL <kbd>f</kbd></button>
+        <button class="skip" onclick="reject()">Not a useful case <kbd>x</kbd></button>
+      </div>
+      <div class="why" style="margin-top:18px">${WHY}</div>
+    </div>`;
+  $("progress").textContent = `${idx+1} of ${queue.length}`;
+}
+
+const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+async function decide(expected){
+  const who = name();
+  if(!who){ $("who").focus(); $("who").style.borderColor = "var(--bad)"; return; }
+  const p = queue[idx];
+  const r = await fetch(`/v1/proposals/${p.id}/confirm`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({reviewer: who, expected})});
+  if(r.ok){ idx++; draw(); }
+  else { const j = await r.json(); alert(j.detail || "failed"); }
+}
+
+async function reject(){
+  const who = name();
+  if(!who){ $("who").focus(); $("who").style.borderColor = "var(--bad)"; return; }
+  const p = queue[idx];
+  const r = await fetch(`/v1/proposals/${p.id}/reject`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({reviewer: who})});
+  if(r.ok){ idx++; draw(); }
+}
+
+async function promote(){
+  const j = await (await fetch("/v1/promote", {method:"POST",
+    headers:{"Content-Type":"application/json"}, body:"{}"})).json();
+  $("promoted").textContent = `+${j.added} case(s) → suite now ${j.n_cases}`
+    + (j.skipped_unreviewed ? ` · ${j.skipped_unreviewed} still unreviewed` : "");
+}
+
+document.addEventListener("keydown", e => {
+  if(e.target.tagName === "INPUT") return;
+  if(e.key === "p") decide(1);
+  if(e.key === "f") decide(0);
+  if(e.key === "x") reject();
+});
+
+$("who").value = localStorage.getItem("le_reviewer") || "";
+load();
+</script>
+</body>
+</html>

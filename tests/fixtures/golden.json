@@ -1,0 +1,31 @@
+{
+  "_config": {
+    "generator": "shortcut(n=300, seed=42)",
+    "judge": "oracle(noise=0.1, seed=42)",
+    "suite": "sample(80, seed=42)",
+    "note": "regenerate with scripts/record_goldens.py; never automatically"
+  },
+  "trace_content_hash": "349d9375c97ad72351f97d79b486ccf7",
+  "suite_content_hash": "4b0cd507d125cd9023777bf2eb8aad75",
+  "ladder_depth": null,
+  "ladder_kappa": {
+    "majority": 0.0,
+    "length": 0.25359,
+    "keyword": 0.743816,
+    "bow": 0.720719,
+    "charngram": 0.720719
+  },
+  "judge_kappa": 0.777651,
+  "judge_status": "VALIDATED",
+  "clustering_sizes": {
+    "0": 75,
+    "1": 63,
+    "2": 57,
+    "3": 49,
+    "4": 56
+  },
+  "coverage": 0.736667,
+  "coverage_radius": 0.328796,
+  "suite_score": 0.9,
+  "false_alarm_paired": 0.01
+}

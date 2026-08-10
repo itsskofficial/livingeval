@@ -1,0 +1,158 @@
+name: Deploy
+
+# Build the image, push it to ECR, migrate, then roll the services.
+#
+# Authenticates with OIDC rather than a stored access key: GitHub gets a short-lived
+# token from AWS STS, so there is no long-lived secret in the repository to leak or
+# rotate. Set `AWS_DEPLOY_ROLE_ARN` to a role trusting your repo — the exact trust
+# policy is in DEPLOYMENT.md.
+#
+# Manual by default. A deployment that happens because someone merged a README change
+# is a deployment nobody is watching.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment suffix used in the resource names
+        default: prod
+        type: string
+      migrate:
+        description: Run the migration task before rolling the service
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write   # required for OIDC
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  PROJECT: livingeval
+  ENVIRONMENT: ${{ inputs.environment || 'prod' }}
+
+jobs:
+  # Deploying a build that fails its own tests is how a green dashboard ends up serving
+  # a broken measurement.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,serve]"
+      - run: ruff check src tests suites scripts
+      - run: mypy src/livingeval
+      - run: lint-imports
+      - run: pytest -q
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'prod' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ env.PROJECT }}-${{ env.ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_SHA::12}"
+          docker build -f deploy/Dockerfile \
+            --build-arg RELEASE="$TAG" \
+            -t "$REGISTRY/$REPOSITORY:$TAG" \
+            -t "$REGISTRY/$REPOSITORY:latest" .
+          docker push "$REGISTRY/$REPOSITORY:$TAG"
+          docker push "$REGISTRY/$REPOSITORY:latest"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "uri=$REGISTRY/$REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"
+
+      # Point every task definition at the new image. Terraform owns the shape of the
+      # task definition; CI only changes the image tag, which is why the ECS services
+      # `ignore_changes = [task_definition]`.
+      - name: Register new task definitions
+        id: taskdefs
+        run: |
+          set -euo pipefail
+          for family in api worker migrate; do
+            FAMILY="${PROJECT}-${ENVIRONMENT}-${family}"
+            aws ecs describe-task-definition --task-definition "$FAMILY" \
+              --query 'taskDefinition' > /tmp/$family.json
+            jq --arg IMAGE "${{ steps.image.outputs.uri }}" '
+              .containerDefinitions[0].image = $IMAGE
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                    .compatibilities, .registeredAt, .registeredBy)
+            ' /tmp/$family.json > /tmp/$family-new.json
+            REV=$(aws ecs register-task-definition \
+              --cli-input-json file:///tmp/$family-new.json \
+              --query 'taskDefinition.taskDefinitionArn' --output text)
+            echo "${family}_arn=$REV" >> "$GITHUB_OUTPUT"
+            echo "registered $REV"
+          done
+
+      - name: Migrate
+        if: ${{ inputs.migrate != false }}
+        run: |
+          set -euo pipefail
+          CLUSTER="${PROJECT}-${ENVIRONMENT}"
+          SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=tag:Name,Values=${CLUSTER}-public-*" \
+            --query 'Subnets[].SubnetId' --output text | tr '\t' ',')
+          SG=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=${CLUSTER}-tasks" \
+            --query 'SecurityGroups[0].GroupId' --output text)
+          ARN=$(aws ecs run-task --cluster "$CLUSTER" \
+            --task-definition "${{ steps.taskdefs.outputs.migrate_arn }}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "migration task $ARN"
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$ARN"
+          CODE=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          echo "migration exited $CODE"
+          # A failed migration must stop the deployment, not be rolled over.
+          [ "$CODE" = "0" ]
+
+      - name: Roll the services
+        run: |
+          set -euo pipefail
+          CLUSTER="${PROJECT}-${ENVIRONMENT}"
+          aws ecs update-service --cluster "$CLUSTER" --service "${CLUSTER}-api" \
+            --task-definition "${{ steps.taskdefs.outputs.api_arn }}" --force-new-deployment > /dev/null
+          aws ecs update-service --cluster "$CLUSTER" --service "${CLUSTER}-worker" \
+            --task-definition "${{ steps.taskdefs.outputs.worker_arn }}" --force-new-deployment > /dev/null
+          echo "waiting for the API service to stabilise…"
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "${CLUSTER}-api"
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          CLUSTER="${PROJECT}-${ENVIRONMENT}"
+          DNS=$(aws elbv2 describe-load-balancers --names "$CLUSTER" \
+            --query 'LoadBalancers[0].DNSName' --output text)
+          echo "checking http://$DNS/healthz"
+          for i in $(seq 1 30); do
+            if curl -fsS "http://$DNS/healthz"; then echo; break; fi
+            sleep 5
+          done
+          curl -fsS "http://$DNS/readyz" | tee /dev/stderr | grep -q '"status": *"ready"'
+          echo "deployed ${{ steps.image.outputs.tag }} -> http://$DNS"

@@ -1,0 +1,264 @@
+{
+  "schema": 1,
+  "livingeval": "0.1.0",
+  "meta": {
+    "python": "3.12.9",
+    "platform": "Windows"
+  },
+  "results": [
+    {
+      "kind": "coverage",
+      "suite": "golden-set",
+      "status": "OK",
+      "n_cases": 150,
+      "n_traces": 267,
+      "coverage": 0.3782771535580524,
+      "ci": {
+        "point": 0.3782771535580524,
+        "lo": 0.32222221698418446,
+        "hi": 0.43778498323167275,
+        "level": 0.95
+      },
+      "radius": 0.24131219034897117,
+      "q": 50.0,
+      "per_cluster": {
+        "0": 0.5454545454545454,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.7391304347826086,
+        "4": 0.0,
+        "5": 0.6111111111111112,
+        "6": 0.42105263157894735,
+        "7": 0.0,
+        "8": 0.8333333333333334,
+        "9": 0.47058823529411764,
+        "10": 0.375,
+        "11": 0.3888888888888889
+      },
+      "cluster_shares": {
+        "0": 0.12359550561797752,
+        "1": 0.09363295880149813,
+        "2": 0.06741573033707865,
+        "3": 0.08614232209737828,
+        "4": 0.09737827715355805,
+        "5": 0.06741573033707865,
+        "6": 0.07116104868913857,
+        "7": 0.052434456928838954,
+        "8": 0.0898876404494382,
+        "9": 0.06367041198501873,
+        "10": 0.1198501872659176,
+        "11": 0.06741573033707865
+      },
+      "cluster_terms": {
+        "0": "second unit, the second, second, refused, was refused",
+        "1": "reverted, reverted on, was reverted, on the, on",
+        "2": "confirmation, confirmation for, pending, pending confirmation, is pending",
+        "3": "twice for, charged twice, charged, twice, was charged",
+        "4": "chain for, the wrong, went to, wrong, wrong chain",
+        "5": "the sandbox, sandbox project, sandbox, project, project can",
+        "6": "rejecting, keeps rejecting, keeps, rejecting the, the sso",
+        "7": "zero balance, zero, balance after, balance, shows zero",
+        "8": "for, the replacement, replacement unit, replacement, the warehouse",
+        "9": "fee can, the overage, overage fee, overage, want",
+        "10": "stopped, working after, working, stopped working, me",
+        "11": "batch, batch endpoint, the batch, endpoint, endpoint can"
+      },
+      "sensitivity": {
+        "25.0": 0.25842696629213485,
+        "50.0": 0.3782771535580524,
+        "75.0": 0.5131086142322098
+      },
+      "representation": "tfidf+svd(64)",
+      "view": "request",
+      "n_components": 64,
+      "embedding_dim": 64,
+      "uses_embeddings": false
+    },
+    {
+      "kind": "blindspots",
+      "suite": "golden-set",
+      "threshold": 0.3,
+      "blind_clusters": [
+        4,
+        1,
+        2
+      ],
+      "spots": [
+        {
+          "cluster": 4,
+          "n_traces": 26,
+          "traffic_share": 0.09737827715355805,
+          "coverage": 0.0,
+          "n_suite_cases": 0,
+          "terms": "chain for, the wrong, went to, wrong, wrong chain",
+          "severity": 0.09737827715355805,
+          "example_trace_id": "t001336"
+        },
+        {
+          "cluster": 1,
+          "n_traces": 25,
+          "traffic_share": 0.09363295880149813,
+          "coverage": 0.0,
+          "n_suite_cases": 0,
+          "terms": "reverted, reverted on, was reverted, on the, on",
+          "severity": 0.09363295880149813,
+          "example_trace_id": "t001386"
+        },
+        {
+          "cluster": 10,
+          "n_traces": 32,
+          "traffic_share": 0.1198501872659176,
+          "coverage": 0.375,
+          "n_suite_cases": 22,
+          "terms": "stopped, working after, working, stopped working, me",
+          "severity": 0.0749063670411985,
+          "example_trace_id": "t001333"
+        },
+        {
+          "cluster": 2,
+          "n_traces": 18,
+          "traffic_share": 0.06741573033707865,
+          "coverage": 0.0,
+          "n_suite_cases": 0,
+          "terms": "confirmation, confirmation for, pending, pending confirmation, is pending",
+          "severity": 0.06741573033707865,
+          "example_trace_id": "t001334"
+        },
+        {
+          "cluster": 0,
+          "n_traces": 33,
+          "traffic_share": 0.12359550561797752,
+          "coverage": 0.5454545454545454,
+          "n_suite_cases": 25,
+          "terms": "second unit, the second, second, refused, was refused",
+          "severity": 0.05617977528089888,
+          "example_trace_id": "t001337"
+        }
+      ]
+    },
+    {
+      "kind": "power",
+      "suite": "golden-set",
+      "regression": "is_new_intent=True(effect=0.5)",
+      "effect": 0.5,
+      "n_sim": 300,
+      "power": {
+        "point": 0.01,
+        "lo": 0.003406618437715286,
+        "hi": 0.02898349336233983,
+        "level": 0.95
+      },
+      "n_affected_cases": 0,
+      "n_gateable": 150,
+      "affected_fraction": 0.0,
+      "mode": "paired",
+      "is_blind": true,
+      "blind_rate": 0.0,
+      "meta": {
+        "resample_cases": false,
+        "flake": 0.05,
+        "description": "only traces with meta['is_new_intent'] == True"
+      }
+    },
+    {
+      "kind": "ladder",
+      "judge": "oracle(noise=0.05,fp=0.0,fn=0.0)",
+      "subgroup": null,
+      "n": 1600,
+      "n_groups": 534,
+      "cv": "session",
+      "n_splits": 5,
+      "view": "full",
+      "threshold": 0.8,
+      "judge_pass_rate": 0.705,
+      "judge_seconds_per_turn": 2.070625632768497e-06,
+      "judge_cost_per_1k_usd": 0.0,
+      "judge_depth": "keyword",
+      "speedup": 0.11103145666973524,
+      "reading": "Deploy `keyword` for per-turn online scoring. It also means this judge's decision is reproducible from single keyword on this traffic, which is very shallow: treat downstream numbers as measuring surface form unless a per-cluster ladder says otherwise.",
+      "rungs": [
+        {
+          "rung": "majority",
+          "kappa": {
+            "point": 0.0,
+            "lo": 0.0,
+            "hi": 0.0,
+            "level": 0.95
+          },
+          "accuracy": 0.705,
+          "kappa_vs_human": 0.0,
+          "seconds_per_turn": 9.009998757392168e-07,
+          "seconds_per_turn_batch": 1.6250123735517264e-09,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "length",
+          "kappa": {
+            "point": 0.3032321434052612,
+            "lo": 0.2504699989290871,
+            "hi": 0.3502692762699769,
+            "level": 0.95
+          },
+          "accuracy": 0.71625,
+          "kappa_vs_human": 0.36924806266210664,
+          "seconds_per_turn": 3.243149956688285e-05,
+          "seconds_per_turn_batch": 3.38749960064888e-07,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "keyword",
+          "kappa": {
+            "point": 0.8776009791921666,
+            "lo": 0.8508289468294633,
+            "hi": 0.9004228912046418,
+            "level": 0.95
+          },
+          "accuracy": 0.950625,
+          "kappa_vs_human": 1.0,
+          "seconds_per_turn": 1.864899997599423e-05,
+          "seconds_per_turn_batch": 1.8621062481543048e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "\"am\" present -> fail",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "bow",
+          "kappa": {
+            "point": 0.8776009791921666,
+            "lo": 0.8508289468294633,
+            "hi": 0.9004228912046418,
+            "level": 0.95
+          },
+          "accuracy": 0.950625,
+          "kappa_vs_human": 1.0,
+          "seconds_per_turn": 0.0002491750003537163,
+          "seconds_per_turn_batch": 3.1624250041204505e-05,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        },
+        {
+          "rung": "charngram",
+          "kappa": {
+            "point": 0.8776009791921666,
+            "lo": 0.8508289468294633,
+            "hi": 0.9004228912046418,
+            "level": 0.95
+          },
+          "accuracy": 0.950625,
+          "kappa_vs_human": 1.0,
+          "seconds_per_turn": 0.0005023714998969808,
+          "seconds_per_turn_batch": 0.00023677893746935298,
+          "cost_per_1k_usd": 0.0,
+          "detail": "",
+          "is_diagnostic": true
+        }
+      ],
+      "meta": {}
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests suites scripts
+      - name: Types
+        run: mypy src/livingeval
+      - name: Architectural invariants (4 contracts)
+        run: lint-imports
+      - name: Tests (Layer A promises + Layer B goldens + store/embed/serve/feedback)
+        run: pytest -v --cov=livingeval --cov-report=term-missing
+
+  offline:
+    # The default install must have no torch, no API client and no network. If this
+    # job ever needs an extra, the "runs on every commit in seconds" claim is gone.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . && pip install pytest
+      - name: Import and run the quickstart with only the core dependencies
+        run: |
+          python -c "
+          import livingeval as le
+          traces = le.synthetic.drifting(n=400)
+          suite = le.EvalSuite.from_traces(traces[:80])
+          print(le.mine.blindspots(suite, traces).summary())
+          print(le.scorer.ladder(traces, le.judge.oracle(), n_boot=100).table())
+          "
+      - name: No optional dependency leaked into the default install
+        run: |
+          ! pip show torch matplotlib openai anthropic fastapi psycopg2-binary 2>/dev/null | grep -q Name
+      - name: The store and the offline embedder work with no extras
+        run: |
+          python -c "
+          import livingeval as le
+          s = le.store.open_store('sqlite://:memory:')
+          t = le.synthetic.drifting(n=200)
+          s.put_traces(t)
+          sp = le.mine.Space.fit(t, embed=le.embed.hashing(dim=64, cache=False))
+          print('coverage', le.mine.coverage(le.EvalSuite.from_traces(t[:50]), t, space=sp).coverage)
+          "
+
+  platform:
+    # The local platform: API contract, review guard-rail, per-turn scoring. Runs on
+    # every commit because the guard-rail (a mined case cannot reach a gate unreviewed)
+    # is a correctness property, not a nicety.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,serve]"
+      - run: pytest tests/unit/test_serve.py tests/unit/test_extras.py -v
+      - name: The server boots and answers
+        run: |
+          python -m livingeval.cli serve --db sqlite:///ci.db --demo --port 8099 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8099/v1/status && break; sleep 2; done
+          curl -sf -X POST http://127.0.0.1:8099/v1/score             -H 'Content-Type: application/json' -d '{"text":"unable to verify"}'
+          curl -sf http://127.0.0.1:8099/ > /dev/null
+          curl -sf http://127.0.0.1:8099/review > /dev/null
+
+  reproduction:
+    # Layer C: scenario reproductions, the audit, the demo, and the fine-tuned rung.
+    # Slow rather than optional, so they run on demand and nightly instead of gating a
+    # commit.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,serve,finetune]"
+      - run: pytest -m reproduction -v
+      - name: The fine-tuned rung actually trains
+        run: pytest -m download -v
+      - name: The audit still runs end to end
+        run: python scripts/run_audit.py --quick
+      - name: The demo still runs end to end
+        run: python scripts/demo.py --fresh --db ci-demo.db --n 800 --suite-size 80
