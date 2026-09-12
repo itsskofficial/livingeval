@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "livingeval"
-version = "0.1.0"
+version = "0.2.0"
 description = "Eval suites that tell you when they've gone blind: coverage, detection power and judge-depth for LLM agent evaluation."
 readme = "README.md"
 license = { text = "Apache-2.0" }

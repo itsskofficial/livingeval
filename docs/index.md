@@ -1,5 +1,10 @@
 # livingeval documentation
 
+- **[guide.md](guide.md)** — the long-form walkthrough: the problem, the three
+  measurements, the ladder, the platform, and how to run any of it on your own traces.
+- **[decision-framework.md](decision-framework.md)** — the procedure `init` follows to
+  decide where an eval goes, which risk it covers and which metric measures it, with
+  its sources and the three places livingeval departs from them.
 - **[concepts.md](concepts.md)** — what coverage, power and judge-depth actually mean,
   and how each is computed. Start here if any of the words below are unfamiliar; every
   term is defined before it is used.
@@ -46,3 +51,19 @@ python examples/01_quickstart.py     # the three measurements, in a terminal
 python scripts/demo.py --fresh       # the whole loop end to end, ~15s
 livingeval serve --demo              # the platform, on http://127.0.0.1:8000
 ```
+
+## Or point it at your own codebase
+
+```bash
+livingeval scan --explain        # the call sites it found, and what it would write
+livingeval init                  # asks about the judge and the scope, then generates
+python -m livingeval_evals.run_suite
+livingeval baseline --runs 10    # replace the guessed noise thresholds with measured ones
+livingeval sync                  # after the code moves; your answers are preserved
+livingeval drift --traces langfuse:limit=1000    # is the suite still about your traffic
+livingeval gate                  # PASS (0) / FAIL (1) / BLIND (2)
+```
+
+Every generated file explains why it exists, and `livingeval_evals/WHY.md` collects the
+reasoning in one place — including which metrics it cannot measure yet and the single
+line of instrumentation each one needs.
