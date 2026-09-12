@@ -59,6 +59,24 @@ class MetricDelta:
     q: float | None = None
     discordant: tuple[int, int] | None = None
     catches: str = ""
+    #: The smallest p this metric's paired test could have produced, given how
+    #: many cases disagreed between the runs. Not the p it did produce -- the
+    #: best it was capable of. When that best is above the threshold, "within
+    #: noise" means "this test cannot speak", which is a different sentence.
+    floor_p: float | None = None
+    alpha: float = 0.05
+
+    @property
+    def underpowered(self) -> bool:
+        """Whether this test could have rejected at all.
+
+        Compared against alpha rather than against the corrected q, because the
+        question is what the test was capable of, not what it happened to
+        return. Benjamini-Hochberg only ever makes the bar stricter, so a floor
+        above alpha is a floor above the corrected threshold too -- this is the
+        conservative half of the claim.
+        """
+        return self.floor_p is not None and self.floor_p > self.alpha
 
     @property
     def delta(self) -> float:
@@ -76,6 +94,8 @@ class MetricDelta:
         stat = ""
         if self.q is not None:
             stat = f"  p={self.p:.3f} q={self.q:.3f}"
+            if self.underpowered:
+                stat += "  (too few cases to reach significance)"
         elif not self.measured_noise:
             stat = "  (noise threshold is an estimate)"
         return (f"  {arrow} {self.key:<38} {self.baseline:6.3f} -> "
@@ -122,7 +142,8 @@ class RegressionReport:
             "blind": self.blind,
             "metrics": [
                 {"key": d.key, "baseline": d.baseline, "candidate": d.candidate,
-                 "delta": d.delta, "verdict": d.verdict, "p": d.p, "q": d.q}
+                 "delta": d.delta, "verdict": d.verdict, "p": d.p, "q": d.q,
+                 "floor_p": d.floor_p, "underpowered": d.underpowered}
                 for d in self.deltas
             ],
         }
@@ -148,6 +169,25 @@ def _paired(baseline: dict, candidate: dict, key: str) -> tuple[float, tuple[int
     a = np.array([1 if after[i].get("passed") else 0 for i in shared], dtype=int)
     p, n01, n10 = mcnemar_exact(b, a)
     return p, (n01, n10)
+
+
+def _floor_p(discordant: int) -> float:
+    """The smallest two-sided p the exact test could return for this many
+    disagreements.
+
+    Exact McNemar is a two-sided binomial sign test over the cases that changed.
+    With `d` of them, the most extreme outcome available is all `d` falling the
+    same way, giving p = 2 * 0.5**d. So d=4 cannot go below 0.125 however large
+    the effect, and no amount of regression will make that test fire.
+
+    This is detection power stated exactly rather than simulated, and it is the
+    number that separates "nothing happened" from "this suite is too small to
+    tell". A generated suite ships five to seven cases per metric, so it is
+    usually the second.
+    """
+    if discordant <= 0:
+        return 1.0
+    return min(1.0, 2.0 * 0.5 ** discordant)
 
 
 def _moved_badly(delta: float, direction: str, noise: float) -> bool:
@@ -182,11 +222,12 @@ def compare(baseline: dict, candidate: dict, registry: dict,
             key=key, baseline=float(base_metrics[key]),
             candidate=float(cand_metrics[key]), direction=direction,
             noise=noise, measured_noise=measured, verdict="flat",
-            catches=entry.get("catches", ""))
+            catches=entry.get("catches", ""), alpha=alpha)
 
         paired = _paired(baseline, candidate, key)
         if paired is not None:
             delta.p, delta.discordant = paired[0], paired[1]
+            delta.floor_p = _floor_p(sum(paired[1]))
             indexed.append(len(deltas))
             pvalues.append(delta.p)
         deltas.append(delta)
@@ -236,6 +277,24 @@ def compare(baseline: dict, candidate: dict, registry: dict,
             f"{len(estimated)} of {len(deltas)} metrics were compared against "
             f"estimated noise thresholds with no per-case data: run "
             f"`livingeval baseline --runs 10` to measure them")
+
+    # A paired test that could not have rejected at any effect size did not
+    # find nothing; it was never able to. Reporting that as "within noise" is
+    # the specific way a small suite reassures people -- and after correcting
+    # across a family of sixteen, the bar a single metric must clear is far
+    # below what five cases can produce.
+    underpowered = [d for d in deltas if d.underpowered]
+    if underpowered:
+        worst = max(underpowered, key=lambda d: abs(d.better) if d.better < 0 else 0)
+        detail = ""
+        if worst.better < 0:
+            detail = (f" -- {worst.key} moved {abs(worst.better):.3f} the wrong way "
+                      f"and still could not be called")
+        blind.append(
+            f"{len(underpowered)} of {len(deltas)} metrics have too few cases for "
+            f"the paired test to reach significance at any effect size{detail}. "
+            f"Add cases to those golden sets, or read their movement against the "
+            f"measured noise threshold instead")
 
     skipped = set(base_metrics) ^ set(cand_metrics)
     if skipped:

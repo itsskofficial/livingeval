@@ -218,3 +218,35 @@ def test_a_metric_that_produced_no_number_in_either_run_is_blind_not_silent():
     assert report.verdict == "BLIND"
     assert any("application.correctness" in note for note in report.blind)
     assert any("awaiting reference answers" in note for note in report.blind)
+
+
+def test_a_test_that_could_not_have_fired_is_not_reported_as_reassurance():
+    """Exact McNemar is a sign test over the cases that changed. With three of
+    them the smallest two-sided p available is 0.25, so no effect of any size
+    makes that test fire -- and printing "within noise" says the opposite of
+    what happened.
+
+    Measured live: a prompt edit dropped scope adherence from 0.883 to 0.550 on
+    a six-case set and the gate called it noise at p=0.5."""
+    base = run({"workflow.faithfulness": 0.90},
+               cases("workflow.faithfulness", [True] * 8 + [False] * 2))
+    cand = run({"workflow.faithfulness": 0.60},
+               {"workflow.faithfulness": [
+                   {"id": f"c{i}", "passed": i >= 3} for i in range(10)]})
+    report = compare(base, cand, registry())
+    delta = report.deltas[0]
+    assert delta.floor_p is not None
+    assert delta.underpowered, f"floor {delta.floor_p} vs q {delta.q}"
+    assert report.verdict == "BLIND"
+    assert any("too few cases" in note for note in report.blind)
+
+
+def test_a_well_powered_test_is_not_flagged_underpowered():
+    before = [True] * 40
+    after = [{"id": f"c{i}", "passed": i >= 20} for i in range(40)]
+    base = run({"workflow.faithfulness": 1.0}, cases("workflow.faithfulness", before))
+    cand = run({"workflow.faithfulness": 0.5}, {"workflow.faithfulness": after})
+    report = compare(base, cand, registry())
+    delta = report.deltas[0]
+    assert not delta.underpowered
+    assert delta.verdict == "regressed"
