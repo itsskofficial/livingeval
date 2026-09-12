@@ -37,6 +37,12 @@ from livingeval.trace.types import Trace, TraceSet, Turn
 
 __all__ = ["DriftReport", "goldens_as_suite", "measure_drift"]
 
+# Cases this tool wrote rather than took from your traffic: adversarial probes
+# and the generated inputs that reference-free metrics run on. Both exercise
+# the application; neither is evidence of what anyone actually asks, so neither
+# counts towards coverage of a normal day unless you ask for it.
+_TOOL_AUTHORED = frozenset({"adversarial", "benign", "mixed", "synthetic"})
+
 
 @dataclass
 class DriftReport:
@@ -106,7 +112,7 @@ def goldens_as_suite(package: Path, include_probes: bool = False) -> EvalSuite:
             continue
         metric = data.get("metric", path.stem)
         for row in data.get("cases", []):
-            is_probe = row.get("kind") in {"adversarial", "benign", "mixed"}
+            is_probe = row.get("kind") in _TOOL_AUTHORED
             if is_probe and not include_probes:
                 continue
             # An unanswered stub still carries the placeholder text this tool
@@ -138,7 +144,7 @@ def count_probe_cases(package: Path) -> int:
         except ValueError:
             continue
         total += sum(1 for row in data.get("cases", [])
-                     if row.get("kind") in {"adversarial", "benign", "mixed"})
+                     if row.get("kind") in _TOOL_AUTHORED)
     return total
 
 
@@ -177,8 +183,9 @@ def measure_drift(package: Path, traces: TraceSet, top: int = 5,
     ]
 
     if probes and not include_probes:
-        notes.append(f"{probes} synthetic safety probes excluded: they are "
-                     f"adversarial by construction and would overstate coverage")
+        notes.append(f"{probes} tool-authored cases excluded (safety probes and "
+                     f"generated inputs): this tool wrote them, so counting them "
+                     f"as coverage of your traffic measures itself")
     if fraction is not None and fraction < 0.70:
         notes.append("below 70%: most of your traffic is unrepresented, so a green "
                      "suite is not evidence the application is working")

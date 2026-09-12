@@ -167,11 +167,23 @@ def _eval_file(pipeline: Pipeline, judge: str) -> str:
                     "from deepeval.test_case import LLMTestCaseParams"]
     imports.append("")
 
-    metric_lines = ",\n    ".join(_metric_expr(m, judge) for m in pipeline.metrics)
+    # (registry key, metric). Paired rather than listed, for two reasons a live
+    # run made obvious: DeepEval labels results with its own display name
+    # ("PII Leakage", "toxicity [GEval]"), which never matches a registry key
+    # and leaves the gate with nothing to compare; and each metric has to be
+    # scored against its own dataset, or injection probes get judged for
+    # toxicity and the number means nothing.
+    metric_lines = ",\n    ".join(
+        f'("{m.key}", {_metric_expr(m, judge)})' for m in pipeline.metrics)
     body = f'''
 NAME = "{pipeline.slug}"
 
-# Metrics for this target. Each is explained in the module docstring above.
+# (registry key, metric). Paired rather than listed, for two reasons the live
+# run made obvious: DeepEval labels results with its own display name
+# ("PII Leakage", "toxicity [GEval]"), which never matches a registry key and
+# leaves the gate with nothing to compare; and each metric must be scored
+# against its own dataset, or injection probes get judged for toxicity and the
+# score means nothing.
 METRICS = [
     {metric_lines},
 ]
@@ -212,19 +224,64 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
+
+# DeepEval's progress output contains emoji, and the Windows console defaults to
+# cp1252, which cannot encode them -- the run dies in the reporter after every
+# API call has already been paid for. Reconfiguring here rather than asking the
+# user to set PYTHONIOENCODING, because they would only find out by losing a run.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = Path(__file__).parent
 GOLDENS = HERE / "goldens"
 
-# The judge. Every model-graded metric uses this one model, so that scores are
-# comparable across the suite and a judge upgrade is a single edit.
-JUDGE = os.environ.get("LIVINGEVAL_JUDGE", "{judge}")
+# The judge. Every model-graded metric uses this one model, so scores stay
+# comparable across the suite and an upgrade is a single edit.
+#
+# Resolved rather than passed through: DeepEval accepts a bare string only for
+# OpenAI, and silently treats "claude-sonnet-4-5" as an OpenAI model name --
+# which fails at the first call with an error about the wrong provider.
+JUDGE_SPEC = os.environ.get("LIVINGEVAL_JUDGE", "{judge}")
+
+
+def _resolve_judge(spec: str):
+    provider, _, name = spec.partition(":")
+    if not name:                      # a bare model name means OpenAI
+        return spec
+    if provider == "openai":
+        return name
+    if provider == "anthropic":
+        from deepeval.models import AnthropicModel
+        return AnthropicModel(model=name, temperature=0)
+    if provider == "ollama":
+        from deepeval.models import OllamaModel
+        return OllamaModel(model=name, temperature=0)
+    raise ValueError(
+        f"unknown judge {{spec!r}}. Use openai:<model>, anthropic:<model> or "
+        f"ollama:<model>.")
+
+
+JUDGE = _resolve_judge(JUDGE_SPEC)
 
 # Per-metric pass marks. These are starting points, not measurements: run
 # `livingeval baseline` to replace them with values taken from your own system.
 THRESHOLDS = {thresholds}
+
+# Judge concurrency. Raise if your provider tolerates it and you want the suite
+# to finish sooner; lower if you see timeouts. The defaults are chosen to
+# complete on a standard rate limit rather than to be quick.
+MAX_CONCURRENT = int(os.environ.get("LIVINGEVAL_MAX_CONCURRENT", "4"))
+THROTTLE_SECONDS = float(os.environ.get("LIVINGEVAL_THROTTLE", "0.5"))
+
+
+# Why a metric has no cases, keyed by metric. A skipped set that leaves no
+# trace is indistinguishable from a metric nobody planned, and the second is
+# fine while the first is a hole in the suite.
+SKIPPED: dict = {{}}
 
 
 def load_cases(metric_keys: list[str]) -> dict:
@@ -233,11 +290,15 @@ def load_cases(metric_keys: list[str]) -> dict:
     for key in metric_keys:
         path = GOLDENS / (key.replace(".", "_") + ".json")
         if not path.exists():
+            SKIPPED[key] = "no golden set was written for this metric"
             continue
         data = json.loads(path.read_text(encoding="utf-8"))
         if not data.get("complete", False):
+            n = len(data["cases"])
             print(f"  ~ {{key}}: golden set incomplete, skipping "
-                  f"({{len(data['cases'])}} cases awaiting answers)")
+                  f"({{n}} cases awaiting answers)")
+            SKIPPED[key] = (f"{{n}} cases in goldens/{{path.name}} are still "
+                            f"awaiting the reference answers only you can write")
             continue
         out[key] = data["cases"]
     return out
@@ -247,76 +308,298 @@ def load_cases(metric_keys: list[str]) -> dict:
 
 
 def local_metric(key: str):
-    """Placeholder for metrics measured by the harness rather than by a judge --
-    latency, cost, schema validity. `run_pipeline` handles them directly."""
+    """A metric read off the calls rather than judged. `measure_telemetry`
+    below computes the ones it can and names the ones it cannot."""
     return {{"__local__": key}}
+
+
+# What the harness can read off a run without being told anything else, and
+# what it cannot. A metric it cannot measure is *named*, not dropped: a planned
+# metric that quietly produces no number is how a suite ends up reporting on
+# whatever was convenient instead of on what matters. Anything listed here as
+# unmeasured becomes BLIND at the gate rather than absent from it.
+UNMEASURABLE = {{
+    "component.latency_component":
+        "needs per-stage timings; return {{'timings': {{'retrieve': 0.1, ...}}}} "
+        "from call_app to measure it",
+    "application.time_to_first_token":
+        "needs a streaming call; time the first chunk and return "
+        "{{'ttft': seconds}} from call_app",
+    "component.parameter_correctness":
+        "needs the arguments your agent passed to each tool; return "
+        "{{'tools': [{{'name': ..., 'args': {{...}}}}]}} from call_app, and fill "
+        "in EXPECTED_TOOL_ARGS",
+}}
+
+# Structured-output expectations. The scanner can see that your code asks for a
+# schema, but not which fields are required or which values are legal -- those
+# live in a class it does not import. Fill these in and the two metrics below
+# start measuring; leave them and they report as unmeasured rather than
+# passing vacuously.
+REQUIRED_FIELDS: list[str] = {required_fields}
+ALLOWED_VALUES: dict = {{}}     # {{"field": ["label_a", "label_b"]}}
+
+
+def _normalise(text: str) -> str:
+    return " ".join(str(text).lower().split()).strip(" .!?")
+
+
+def measure_telemetry(keys: list, calls: list, cases: dict) -> tuple:
+    """Scores read off the calls themselves, and reasons for the ones missing.
+
+    `calls` is one record per distinct input actually sent: latency, whether it
+    raised, and whatever optional keys call_app chose to return.
+    """
+    scores, unmeasured = {{}}, {{}}
+    done = [c for c in calls if not c["error"]]
+    structured = [c for c in done if c.get("structured") is not None]
+
+    for key in keys:
+        name = key.split(".")[-1]
+
+        if key in UNMEASURABLE:
+            unmeasured[key] = UNMEASURABLE[key]
+
+        elif name == "error_rate":
+            if calls:
+                scores[key] = sum(1 for c in calls if c["error"]) / len(calls)
+            else:
+                unmeasured[key] = "no call was made this run"
+
+        elif name == "cost_per_query":
+            costs = [c["cost"] for c in done if c.get("cost") is not None]
+            if costs:
+                scores[key] = sum(costs) / len(costs)
+            else:
+                unmeasured[key] = ("call_app did not report a cost; return "
+                                   "{{'cost': usd}} from it to measure this")
+
+        elif name == "termination":
+            steps = [c["steps"] for c in done if c.get("steps") is not None]
+            if steps:
+                scores[key] = sum(1 for n in steps if n < MAX_STEPS) / len(steps)
+            else:
+                unmeasured[key] = ("call_app did not report a step count; return "
+                                   "{{'steps': n}} from it to measure whether the "
+                                   "loop terminates")
+
+        elif name == "schema_validity":
+            if done:
+                scores[key] = len(structured) / len(done)
+            else:
+                unmeasured[key] = "no call completed, so nothing was parsed"
+
+        elif name == "required_fields":
+            if not REQUIRED_FIELDS:
+                unmeasured[key] = ("REQUIRED_FIELDS is empty in harness.py -- "
+                                   "name the fields your schema requires")
+            elif structured:
+                scores[key] = sum(
+                    1 for c in structured
+                    if isinstance(c["structured"], dict)
+                    and all(f in c["structured"] for f in REQUIRED_FIELDS)
+                ) / len(structured)
+            else:
+                unmeasured[key] = "call_app never returned a parsed object"
+
+        elif name == "enum_membership":
+            if not ALLOWED_VALUES:
+                unmeasured[key] = ("ALLOWED_VALUES is empty in harness.py -- "
+                                   "list the legal labels per field")
+            elif structured:
+                ok = 0
+                for c in structured:
+                    obj = c["structured"]
+                    ok += isinstance(obj, dict) and all(
+                        obj.get(f) in allowed
+                        for f, allowed in ALLOWED_VALUES.items() if f in obj)
+                scores[key] = ok / len(structured)
+            else:
+                unmeasured[key] = "call_app never returned a parsed object"
+
+        elif name == "accuracy":
+            rows = [r for r in cases.get(key, []) if r.get("expected")]
+            answers = {{c["input"]: c["answer"] for c in done}}
+            if not rows:
+                unmeasured[key] = ("the accuracy set has no confirmed labels yet; "
+                                   "fill in goldens/{{}}.json".format(
+                                       key.replace(".", "_")))
+            else:
+                scores[key] = sum(
+                    1 for r in rows
+                    if _normalise(answers.get(r["input"], "")) ==
+                    _normalise(r["expected"])) / len(rows)
+
+        elif name in ("latency_p95", "latency_mean"):
+            continue                    # computed from the timings below
+
+        else:
+            unmeasured[key] = "no measurement wired for this metric"
+
+    return scores, unmeasured
+
+
+MAX_STEPS = int(os.environ.get("LIVINGEVAL_MAX_STEPS", "12"))
+
+# Every distinct input sent this run, with what came back. Telemetry is read
+# off this at the end rather than per pipeline: latency and error rate are
+# properties of the run, and a pipeline holding only telemetry metrics -- the
+# operational one -- sends nothing itself. Measured per pipeline it would
+# report a confident zero error rate over zero calls.
+CALLS: list = []
+_SEEN: dict = {{}}
+
+
+def call_once(question: str) -> dict:
+    """`call_app`, cached per distinct input and recorded.
+
+    Cached because the same question appears in several metrics' sets and the
+    application is the expensive half of the run; recorded because an
+    exception is a result. Letting it propagate would discard every judge call
+    already paid for on the cases before it, and error_rate is the metric that
+    exists to count exactly this.
+    """
+    if question in _SEEN:
+        return _SEEN[question]
+    started = time.perf_counter()
+    try:
+        result = call_app(question)
+        error = None
+    except Exception as exc:                                   # noqa: BLE001
+        result = {{"answer": "", "context": None}}
+        error = f"{{type(exc).__name__}}: {{exc}}"
+    _SEEN[question] = result
+    CALLS.append({{"input": question, "latency": time.perf_counter() - started,
+                  "error": error, "answer": result.get("answer", ""),
+                  "structured": result.get("structured"),
+                  "steps": result.get("steps"), "cost": result.get("cost")}})
+    return result
+
+
+def finalise(local_keys: list) -> tuple:
+    """Telemetry for the whole run, once every pipeline has been through.
+
+    Returns (scores, unmeasured). Called by run_suite, not by a pipeline.
+    """
+    scores: dict = {{}}
+    if not CALLS:
+        return scores, {{k: "no call was made this run, so there was nothing to "
+                        "measure" for k in local_keys}}
+    ordered = sorted(c["latency"] for c in CALLS)
+    scores["application.latency_p95"] = ordered[int(len(ordered) * 0.95) - 1]
+    scores["application.latency_mean"] = sum(ordered) / len(ordered)
+    tele, unmeasured = measure_telemetry(local_keys, CALLS, load_cases(local_keys))
+    scores.update(tele)
+    failures = [c for c in CALLS if c["error"]]
+    if failures:
+        print(f"\\n  ! {{len(failures)}}/{{len(CALLS)}} calls raised, e.g. "
+              f"{{failures[0]['error'][:140]}}")
+    return scores, unmeasured
 
 
 def run_pipeline(name: str, metrics: list, cases: dict) -> dict:
     """Score one pipeline.
 
-    Returns {{"metrics": {{key: mean}}, "cases": {{key: [per-case rows]}}}}.
+    Returns {{"metrics": {{key: mean}}, "cases": {{key: [per-case rows]}},
+    "unmeasured": {{key: reason}}, "local": [key]}}, keyed by registry key
+    throughout. Telemetry keys come back under "local" for `finalise` to
+    measure once the whole run is done.
+
+    Each metric is evaluated against its own golden set, one metric per call.
+    Batching them all over the pooled cases is faster and wrong: an injection
+    probe judged for toxicity produces a number, and the number is meaningless.
 
     The per-case rows are what make the comparison a *test* rather than a
-    threshold: `livingeval gate` runs exact McNemar on the paired pass/fail
-    outcomes and corrects across the family of metrics. Aggregates alone can
-    only be compared against a guessed noise band.
+    threshold -- `livingeval gate` runs exact McNemar on the paired pass/fail
+    and corrects across the family of metrics.
     """
     from deepeval import evaluate
+    from deepeval.evaluate.configs import AsyncConfig, DisplayConfig, ErrorConfig
     from deepeval.test_case import LLMTestCase
 
-    scores: dict[str, list[float]] = {{}}
+    scores: dict[str, float] = {{}}
     rows: dict[str, list[dict]] = {{}}
-    latencies: list[float] = []
+    local_keys = [k for k, m in metrics if isinstance(m, dict)]
 
-    for key, case_rows in cases.items():
+    for key, metric in metrics:
+        if isinstance(metric, dict):          # measured off the calls, below
+            continue
+        case_rows = cases.get(key)
+        if not case_rows:
+            continue
+
         test_cases, ids = [], []
         for row in case_rows:
-            started = time.perf_counter()
-            output = call_app(row["input"])
-            latencies.append(time.perf_counter() - started)
+            cached = call_once(row["input"])
             ids.append(row["id"])
             test_cases.append(LLMTestCase(
                 input=row["input"],
-                actual_output=output.get("answer", ""),
-                retrieval_context=output.get("context"),
+                actual_output=cached.get("answer", ""),
+                retrieval_context=cached.get("context"),
                 expected_output=row.get("expected"),
             ))
-        scored = [m for m in metrics if not isinstance(m, dict)]
-        if not (test_cases and scored):
-            continue
-        report = evaluate(test_cases=test_cases, metrics=scored)
+
+        report = evaluate(
+            test_cases=test_cases, metrics=[metric],
+            # DeepEval fans out every (case x metric) pair at once, which any
+            # provider rate-limits into timeouts -- after you have paid for the
+            # calls that did land. Capped so a first run finishes.
+            async_config=AsyncConfig(max_concurrent=MAX_CONCURRENT,
+                                     throttle_value=THROTTLE_SECONDS),
+            # One metric erroring should not discard the whole run. A missing
+            # score surfaces in `gate` as a metric present in only one run.
+            error_config=ErrorConfig(ignore_errors=True),
+            display_config=DisplayConfig(show_indicator=False, print_results=False))
+
+        collected = []
         for case_id, result in zip(ids, getattr(report, "test_results", [])):
             for data in getattr(result, "metrics_data", []):
-                scores.setdefault(data.name, []).append(data.score or 0.0)
-                rows.setdefault(data.name, []).append({{
+                collected.append({{
                     "id": case_id,
                     "score": data.score,
                     "passed": bool(data.success),
                     "reason": getattr(data, "reason", None),
                 }})
+        if collected:
+            rows[key] = collected
+            valid = [c["score"] for c in collected if c["score"] is not None]
+            if valid:
+                scores[key] = sum(valid) / len(valid)
 
-    aggregated = {{k: sum(v) / len(v) for k, v in scores.items() if v}}
-    if latencies:
-        ordered = sorted(latencies)
-        aggregated["application.latency_p95"] = ordered[int(len(ordered) * 0.95) - 1]
-        aggregated["application.latency_mean"] = sum(latencies) / len(latencies)
-    return {{"metrics": aggregated, "cases": rows}}
+    unmeasured: dict = {{}}
+    for key, metric in metrics:
+        if key in scores or key in local_keys:
+            continue
+        unmeasured[key] = SKIPPED.get(
+            key, "the metric ran but returned no score; see the run output")
+    return {{"metrics": scores, "cases": rows, "unmeasured": unmeasured,
+            "local": local_keys}}
 '''
 
 TARGET_KNOWN = '''def call_app(question: str) -> dict:
     """Call the application under test.
 
-    Returns {{"answer": str, "context": list[str] | None}}. Context is what the
-    grounding metrics score against; returning None for it makes faithfulness
-    and contextual relevance unmeasurable, so wire it up if you have it.
+    Returns {{"answer": str, ...}}. Every other key is optional and turns on a
+    metric that cannot be measured without it:
+
+        context     list[str]  what the grounding metrics score against --
+                               without it faithfulness and contextual relevance
+                               have nothing to check the answer against
+        structured  dict       the parsed object, for the schema metrics
+        steps       int        agent loop iterations, for termination
+        cost        float      USD for the call, for cost_per_query
+
+    If your function already returns a dict with these names they are picked up
+    as they are.
     """
     from {module} import {function}
 
-    answer = {function}({call_args})
-    if isinstance(answer, dict):
-        return {{"answer": answer.get("answer", ""), "context": answer.get("context")}}
-    return {{"answer": str(answer), "context": None}}
+    result = {function}({call_args})
+    if isinstance(result, dict):
+        out = dict(result)
+        out["answer"] = result.get("answer", "")
+        return out
+    return {{"answer": str(result), "context": None}}
 '''
 
 TARGET_UNKNOWN = '''def call_app(question: str) -> dict:
@@ -326,7 +609,9 @@ TARGET_UNKNOWN = '''def call_app(question: str) -> dict:
     yours to write. Returning a fake value here would produce a suite that runs
     green against nothing, which is worse than one that refuses to run.
 
-    Return {{"answer": str, "context": list[str] | None}}.
+    Return {{"answer": str, "context": list[str] | None}}. Optional keys
+    "structured", "steps" and "cost" turn on the schema, termination and cost
+    metrics respectively.
     """
     raise NotImplementedError(
         "Wire livingeval to your application: edit call_app() in this file. "
@@ -335,10 +620,28 @@ TARGET_UNKNOWN = '''def call_app(question: str) -> dict:
 '''
 
 
+def _required_fields_hint(sites: list) -> str:
+    """A seed for REQUIRED_FIELDS, and a comment naming what it came from.
+
+    Static analysis sees that a schema is asked for and how many fields it has,
+    not what they are called -- those are attributes of a class in a module the
+    scanner does not import. Rather than guess names that will silently never
+    match, this leaves the list empty and says which schema to read.
+    """
+    shapes: dict[str, tuple[int, bool]] = {}
+    for site in sites:
+        shapes.update(site.evidence.schema_shapes)
+    if not shapes:
+        return "[]"
+    named = ", ".join(f"{n} ({c} fields)" for n, (c, _) in sorted(shapes.items()))
+    return f"[]     # schemas found: {named}"
+
+
 def _harness(plan: Plan, judge: str) -> str:
     sites = plan.sites
     discovered = "\n".join(
-        f"  {s.path}:{s.line}  {s.function}()  [{s.archetype}]" for s in sites
+        f"  {s.path.as_posix()}:{s.line}  {s.function}()  [{s.archetype}]"
+        for s in sites
     ) or "  (none)"
 
     primary = next((s for s in sites if s.evidence.retrieval), sites[0] if sites else None)
@@ -357,7 +660,8 @@ def _harness(plan: Plan, judge: str) -> str:
 
     return HARNESS.format(
         banner=BANNER, judge=judge, thresholds=thresholds, target=target,
-        discovered=discovered, plural="s" if len(sites) != 1 else "")
+        discovered=discovered, plural="s" if len(sites) != 1 else "",
+        required_fields=_required_fields_hint(sites))
 
 
 # ---------------------------------------------------------------------------
@@ -414,21 +718,46 @@ def main() -> int:
     args = ap.parse_args()
 
     selected = [p for p in PIPELINES if not args.only or args.only in p]
-    results, started = {{}}, time.time()
+    started = time.time()
+    metrics: dict = {{}}
+    cases: dict = {{}}
+    unmeasured: dict = {{}}
+    local: list = []
     for name in selected:
         print(f"-> {{name}}")
         module = importlib.import_module(f"livingeval_evals.{{name}}")
-        results.update(module.run())
+        # Each pipeline returns an envelope, not a flat score map. Merging the
+        # envelope itself would leave a file with two keys in it and every
+        # score but the last pipeline's thrown away.
+        result = module.run()
+        metrics.update(result.get("metrics", {{}}))
+        cases.update(result.get("cases", {{}}))
+        unmeasured.update(result.get("unmeasured", {{}}))
+        local += [k for k in result.get("local", []) if k not in local]
+
+    # Latency, cost and error rate belong to the run, not to whichever pipeline
+    # happens to list them -- the operational pipeline sends no cases of its own.
+    from livingeval_evals.harness import finalise
+    telemetry, missing = finalise(local)
+    metrics.update(telemetry)
+    unmeasured.update({{k: v for k, v in missing.items() if k not in metrics}})
 
     out = args.out or (HERE / ("baseline.json" if not (HERE / "baseline.json").exists()
                                else "candidate.json"))
     out.write_text(json.dumps({{
-        "metrics": results,
+        "metrics": metrics,
+        "cases": cases,
+        "unmeasured": unmeasured,
         "pipelines": selected,
         "seconds": round(time.time() - started, 1),
     }}, indent=2), encoding="utf-8")
-    print(f"\\nwrote {{out.name}}  ({{len(results)}} metrics, "
+    print(f"\\nwrote {{out.name}}  ({{len(metrics)}} metrics, "
           f"{{time.time() - started:.0f}}s)")
+    if unmeasured:
+        print(f"\\n{{len(unmeasured)}} planned metric(s) produced no number. "
+              f"`livingeval gate` reports these BLIND rather than passing them:")
+        for key, reason in sorted(unmeasured.items()):
+            print(f"  ~ {{key}}: {{reason}}")
     return 0
 
 
@@ -489,7 +818,7 @@ def _explanation(plan: Plan, goldens: dict[str, GoldenSet]) -> str:
 
 
 def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
-         judge: str = "gpt-4o-mini", scope: str = "",
+         judge: str = "openai:gpt-4o-mini", scope: str = "",
          protect: set[str] | None = None) -> Emission:
     """Write the whole suite under `root/livingeval_evals`.
 

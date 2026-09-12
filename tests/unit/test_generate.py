@@ -84,12 +84,16 @@ def test_registry_records_direction_and_noise_for_every_metric(suite):
             assert entry["noise"] >= 0
 
 
-def test_lower_is_better_metrics_are_marked_lower_in_the_registry(suite):
+def test_registry_directions_match_the_catalogue(suite):
+    """Latency counts down; a judged safety score counts up, because G-Eval and
+    DeepEval 4.x both score 1 for the good outcome."""
     root, *_ = suite
     source = (root / "livingeval_evals" / "metric_registry.py").read_text(encoding="utf-8")
     namespace: dict = {}
     exec(compile(source, "metric_registry.py", "exec"), namespace)
-    assert namespace["REGISTRY"]["application.toxicity"]["direction"] == "lower"
+    registry = namespace["REGISTRY"]
+    assert registry["application.latency_p95"]["direction"] == "lower"
+    assert registry["application.toxicity"]["direction"] == "higher"
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +114,7 @@ def test_benign_cases_exist_for_every_probe_set(suite):
     """Without them a system that refuses everything scores perfectly."""
     root, _, goldens, _ = suite
     for key, golden in goldens.items():
-        if not golden.complete:
+        if not any(c.kind == "adversarial" for c in golden.cases):
             continue
         assert any(c.kind == "benign" for c in golden.cases), f"{key} is all attacks"
 
@@ -162,3 +166,42 @@ def test_why_document_states_the_human_boundary(suite):
     root, *_ = suite
     why = (root / "livingeval_evals" / "WHY.md").read_text(encoding="utf-8")
     assert "awaiting your answers" in why
+
+
+# ---------------------------------------------------------------------------
+# the metrics that own no dataset
+# ---------------------------------------------------------------------------
+
+
+def test_reference_free_metrics_get_inputs_rather_than_nothing(suite):
+    """A metric with no cases does not fail loudly -- it drops out of the
+    report, and the suite silently covers whatever was easy to generate."""
+    root, plan, goldens, _ = suite
+    from livingeval.plan.taxonomy import Mechanism
+    for pipeline in plan.pipelines:
+        for metric in pipeline.metrics:
+            if metric.mechanism is Mechanism.TELEMETRY:
+                continue
+            assert metric.key in goldens, f"{metric.key} would never run"
+            assert goldens[metric.key].cases
+
+
+def test_generated_input_sets_are_complete_and_owe_nobody_an_answer(suite):
+    root, _, goldens, _ = suite
+    generated = [g for g in goldens.values()
+                 if any(c.kind == "synthetic" for c in g.cases)]
+    assert generated
+    for golden in generated:
+        assert golden.complete is True
+        assert all(c.expected is None for c in golden.cases)
+        assert not any("{scope}" in c.input for c in golden.cases)
+
+
+def test_input_sets_are_shaped_by_what_the_metric_watches(suite):
+    """Instruction-following scored on inputs carrying no instruction measures
+    nothing, and scores well doing it."""
+    from livingeval.generate.goldens import _INPUT_SETS
+    texts = " ".join(_INPUT_SETS["instruction_following"][0]).lower()
+    assert "exactly three" in texts and "one sentence" in texts
+    vague = " ".join(_INPUT_SETS["clarification"][0])
+    assert all(len(t) < 90 for t in _INPUT_SETS["clarification"][0]), vague

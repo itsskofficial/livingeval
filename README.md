@@ -261,6 +261,25 @@ python -m livingeval_evals.run_suite     # writes candidate.json
 livingeval gate                          # PASS (0) / FAIL (1) / BLIND (2)
 ```
 
+Every metric the plan named either produces a number or says why it did not.
+That sounds like bookkeeping and is the difference between a report and a
+decoration: a metric with no data does not fail loudly, it disappears — and a
+green suite that quietly stopped measuring five of its twenty-two metrics reads
+exactly like a healthy one.
+
+```
+wrote baseline.json  (16 metrics, 248s)
+
+7 planned metric(s) produced no number. `livingeval gate` reports these BLIND
+rather than passing them:
+  ~ application.correctness: 5 cases in goldens/application_correctness.json are
+    still awaiting the reference answers only you can write
+  ~ application.cost_per_query: call_app did not report a cost; return
+    {'cost': usd} from it to measure this
+  ~ component.latency_component: needs per-stage timings; return
+    {'timings': {'retrieve': 0.1, ...}} from call_app to measure it
+```
+
 ### Keep it in step with the code
 
 ```sh
@@ -322,8 +341,16 @@ somewhere none of the cases go:
 
 A number tells you to act; the cluster table tells you what to write. Those
 clusters feed the review queue in `livingeval serve`, and `livingeval promote`
-merges the cases a human confirms back into the suite — which is the loop that
-makes it *living*.
+writes the cases a human confirms into `livingeval_evals/goldens/` — where each
+real question takes a generated placeholder's slot rather than sitting beside
+it. That is the loop that makes it *living*.
+
+What promotion will not do is invent a reference answer. A reviewer marking an
+output acceptable has judged what the system said, not written what it should
+have said, and those come apart on exactly the cases worth having — a plausible,
+agreeable, subtly wrong answer is the one that survives review. So a confirmed
+case arrives with a real input and, unless the reviewer typed a correction, the
+answer still owed.
 
 `gate` compares every metric, direction-aware, and where the suite recorded
 per-case outcomes it runs exact McNemar on them rather than comparing against a
@@ -397,7 +424,7 @@ print(le.gate.evaluate(run, baseline, coverage=cov.coverage, power=pw.power.poin
 
 ```sh
 livingeval serve                       # dashboard + review queue on :8000
-livingeval promote --suite my-suite    # confirmed cases join the suite
+livingeval promote --suite my-suite    # confirmed cases join the golden sets
 ```
 
 Nothing enters the suite until a person clicks. A suite labelled entirely by the judge it is used to check is circular.
