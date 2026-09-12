@@ -422,3 +422,26 @@ def test_a_bare_langfuse_spec_still_works(monkeypatch):
     monkeypatch.setattr("livingeval.trace.ingest.langfuse.fetch",
                         lambda **kw: TraceSet([]))
     assert len(sources.load_traces("langfuse")) == 0
+
+
+def test_an_absolute_sqlite_path_stays_absolute(tmp_path, traces):
+    """Three slashes is relative, four is absolute -- the convention every
+    SQLAlchemy user already has in their fingers.
+
+    Stripping every leading slash made `sqlite:////var/lib/live.db` relative to
+    the working directory, so on Linux and macOS an absolute DSN quietly opened
+    an empty database somewhere else and reported no traces. Windows was immune
+    because the path there begins `C:`, which is how it survived local runs.
+    """
+    from livingeval.sources import load_traces
+
+    path = (tmp_path / "abs.db").resolve()
+    store = SQLiteStore(path)
+    store.put_traces(traces[:5])
+    store.close()
+
+    # One spelling covers both: on POSIX `as_posix()` already starts with a
+    # slash, so this is the four-slash absolute form; on Windows it starts
+    # `C:`, which is the three-slash form and absolute anyway.
+    dsn = f"sqlite:///{path.as_posix()}"
+    assert len(load_traces(dsn)) == 5

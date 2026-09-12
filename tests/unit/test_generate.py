@@ -112,7 +112,7 @@ def test_probe_sets_are_complete_and_carry_all_three_case_kinds(suite):
 
 def test_benign_cases_exist_for_every_probe_set(suite):
     """Without them a system that refuses everything scores perfectly."""
-    root, _, goldens, _ = suite
+    _root, _, goldens, _ = suite
     for key, golden in goldens.items():
         if not any(c.kind == "adversarial" for c in golden.cases):
             continue
@@ -121,7 +121,7 @@ def test_benign_cases_exist_for_every_probe_set(suite):
 
 def test_reference_sets_ship_incomplete_with_no_answers(suite):
     """The central promise: never fill these from the current output."""
-    root, _, goldens, _ = suite
+    _root, _, goldens, _ = suite
     for golden in goldens.values():
         if golden.reference == Reference.BASED.value:
             assert golden.complete is False
@@ -144,7 +144,7 @@ def test_scope_is_substituted_into_the_probes(suite):
 
 
 def test_every_dataset_says_why_it_exists(suite):
-    root, _, goldens, _ = suite
+    _root, _, goldens, _ = suite
     assert all(len(g.why) > 40 for g in goldens.values())
 
 
@@ -154,7 +154,7 @@ def test_every_dataset_says_why_it_exists(suite):
 
 
 def test_why_document_covers_sites_pipelines_and_datasets(suite):
-    root, plan, goldens, _ = suite
+    root, plan, _goldens, _ = suite
     why = (root / "livingeval_evals" / "WHY.md").read_text(encoding="utf-8")
     assert "answer()" in why or "`answer()`" in why
     for pipeline in plan.pipelines:
@@ -176,7 +176,7 @@ def test_why_document_states_the_human_boundary(suite):
 def test_reference_free_metrics_get_inputs_rather_than_nothing(suite):
     """A metric with no cases does not fail loudly -- it drops out of the
     report, and the suite silently covers whatever was easy to generate."""
-    root, plan, goldens, _ = suite
+    _root, plan, goldens, _ = suite
     from livingeval.plan.taxonomy import Mechanism
     for pipeline in plan.pipelines:
         for metric in pipeline.metrics:
@@ -187,7 +187,7 @@ def test_reference_free_metrics_get_inputs_rather_than_nothing(suite):
 
 
 def test_generated_input_sets_are_complete_and_owe_nobody_an_answer(suite):
-    root, _, goldens, _ = suite
+    _root, _, goldens, _ = suite
     generated = [g for g in goldens.values()
                  if any(c.kind == "synthetic" for c in g.cases)]
     assert generated
