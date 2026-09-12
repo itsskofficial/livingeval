@@ -9,7 +9,7 @@ import livingeval as le
 
 traces = le.ingest.jsonl("traces/2026-08/*.jsonl")   # native or loose JSONL
 traces = le.ingest.otel("otel-export.json")          # OTel spans
-traces = le.ingest.langfuse("langfuse-export.json")  # Langfuse export
+traces = le.ingest.read_langfuse_json("export.json") # a Langfuse export
 ```
 
 The loose JSONL reader auto-detects the usual key names (`id`/`trace_id`,

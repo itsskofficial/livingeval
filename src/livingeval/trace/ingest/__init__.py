@@ -10,10 +10,12 @@ from livingeval.trace.ingest.langfuse import (
 )
 from livingeval.trace.ingest.otel import from_spans, read_otel_json
 
-#: Convenience aliases used by the CLI and the README.
+#: Convenience aliases used by the CLI and the README. Deliberately not
+#: `langfuse`: that name belongs to the submodule, and binding it here shadowed
+#: `ingest.langfuse.fetch` -- which this package's own docstrings tell you to
+#: call -- with a function that takes a file path.
 jsonl = read_jsonl
 otel = read_otel_json
-langfuse = read_langfuse_json
 
 __all__ = [
     "coerce_trace",
@@ -21,7 +23,6 @@ __all__ = [
     "from_records",
     "from_spans",
     "jsonl",
-    "langfuse",
     "otel",
     "poll_langfuse",
     "read_jsonl",

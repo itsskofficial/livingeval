@@ -391,3 +391,34 @@ def test_trace_specs_resolve(tmp_path, traces):
         load_traces("traces.parquet")
     with pytest.raises(ValueError, match="no synthetic generator"):
         load_traces("synthetic:nonexistent")
+
+
+def test_a_langfuse_spec_pulls_from_the_api_rather_than_a_file(monkeypatch):
+    """"Connect it to Langfuse" means "read my last few hundred traces now".
+    Before this, the only live path was a poller that never returns, so the
+    obvious thing needed an export file piped around by hand."""
+    from livingeval import sources
+
+    seen = {}
+
+    def fake_fetch(**kwargs):
+        seen.update(kwargs)
+        from livingeval.trace.types import TraceSet
+        return TraceSet([])
+
+    monkeypatch.setattr("livingeval.trace.ingest.langfuse.fetch", fake_fetch)
+    sources.load_traces("langfuse:limit=250,pages=3,expand=1")
+    assert seen["limit"] == 250
+    assert seen["pages"] == 3
+    assert seen["expand"] is True
+    # An export file is a side effect nobody asked for on a read.
+    assert seen["out_path"] is None
+
+
+def test_a_bare_langfuse_spec_still_works(monkeypatch):
+    from livingeval import sources
+    from livingeval.trace.types import TraceSet
+
+    monkeypatch.setattr("livingeval.trace.ingest.langfuse.fetch",
+                        lambda **kw: TraceSet([]))
+    assert len(sources.load_traces("langfuse")) == 0

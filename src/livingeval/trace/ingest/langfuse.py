@@ -142,7 +142,13 @@ def from_export(records: Iterable[dict]) -> TraceSet:
             deduped.append(turn)
         turns = deduped
 
-        scores = {s.get("name"): s.get("value") for s in rec.get("scores", []) or []}
+        # The list endpoint returns scores the way it returns observations: as
+        # bare id strings, not objects. Only the single-trace endpoint expands
+        # them. Assuming objects turns the first live fetch into an
+        # AttributeError deep in the parser.
+        scores = {s["name"]: s.get("value")
+                  for s in rec.get("scores", []) or []
+                  if isinstance(s, dict) and s.get("name")}
         label = scores.get("human") if "human" in scores else None
 
         traces.append(
@@ -186,7 +192,12 @@ def _request(path: str, host: str | None = None, **query) -> dict:  # pragma: no
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY"), os.environ.get("LANGFUSE_SECRET_KEY")
     if not pk or not sk:
         raise RuntimeError("set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in the environment")
-    base = (host or os.environ.get("LANGFUSE_HOST") or "https://cloud.langfuse.com").rstrip("/")
+    # LANGFUSE_HOST is the SDK's name for it; LANGFUSE_BASE_URL is what the
+    # "connect" snippet in the Langfuse dashboard hands you, and pasting that
+    # and getting "unauthorized" from the wrong region is a bad first minute.
+    base = (host or os.environ.get("LANGFUSE_HOST")
+            or os.environ.get("LANGFUSE_BASE_URL")
+            or "https://cloud.langfuse.com").rstrip("/")
     url = f"{base}{path}?" + urlencode({k: v for k, v in query.items() if v is not None})
     req = urllib.request.Request(url)
     req.add_header("Authorization", "Basic " + b64encode(f"{pk}:{sk}".encode()).decode())

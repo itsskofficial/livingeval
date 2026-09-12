@@ -62,7 +62,12 @@ def _run_once(package: Path, out: Path) -> dict:
     """One full pass of the generated suite, into a temporary artifact."""
     result = subprocess.run(
         [sys.executable, "-m", f"{package.name}.run_suite", "--out", str(out)],
-        cwd=package.parent, capture_output=True, text=True)
+        cwd=package.parent, capture_output=True, text=True,
+        # The suite prints DeepEval's progress, which contains emoji, and the
+        # generated harness already sets its own stdout to utf-8. Decoding it
+        # here with the Windows default instead kills the reader thread after
+        # every API call in the run has been paid for.
+        encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise RuntimeError(
             f"the suite failed to run:\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}")
