@@ -819,7 +819,7 @@ def _unprotected_tables(store) -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="livingeval",
-        description="Eval suites that tell you when they've gone blind.",
+        description="Point it at your codebase and it writes the evals.",
     )
     p.add_argument("--version", action="version", version=f"livingeval {__version__}")
     sub = p.add_subparsers(dest="command", required=True)

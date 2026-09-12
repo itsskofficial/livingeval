@@ -4,7 +4,7 @@
   <h3 align="center">livingeval</h3>
 
   <p align="center">
-    Eval suites that tell you when they've gone blind — coverage, detection power and judge depth for LLM agents
+    Point it at your repository and it writes the evals — then tells you when they have gone blind
     <br/>
     <br/>
     <a href="./docs/index.md">Read The Docs</a>

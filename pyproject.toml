@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "livingeval"
 version = "0.2.0"
-description = "Eval suites that tell you when they've gone blind: coverage, detection power and judge-depth for LLM agent evaluation."
+description = "Point livingeval at your codebase and it writes the eval suite: metrics, golden sets, drift and a three-valued CI gate."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
