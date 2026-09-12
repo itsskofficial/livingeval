@@ -281,6 +281,94 @@ def cmd_gate(args) -> int:
     return result.exit_code
 
 
+def cmd_sync(args) -> int:
+    """Rescan, diff against the manifest, and update what has moved."""
+    from livingeval.discover import scan
+    from livingeval.generate import build_goldens, emit
+    from livingeval.manifest import Manifest
+    from livingeval.plan import build_plan
+    from livingeval.sync import diff, protected_files
+
+    root = Path(args.path)
+    package = _generated_package(args.path)
+    if package is None:
+        print("no generated suite here. Run `livingeval init` first.")
+        return 1
+    manifest = Manifest.load(package)
+    if manifest is None:
+        print("no manifest: this suite predates sync, or it was deleted.")
+        print("Re-run `livingeval init` to establish one. Golden answers are merged, "
+              "never overwritten.")
+        return 1
+
+    sites = scan(root, include_tests=args.include_tests)
+    plan = build_plan(sites)
+    change = diff(manifest, sites, plan)
+    edited = protected_files(manifest, package)
+    change.edited = edited
+
+    print(change.summary())
+    print()
+    for entry in change.sites:
+        if entry.kind != "unchanged" or args.verbose:
+            print(entry.line())
+    if change.metrics:
+        print()
+        for entry in change.metrics:
+            print(entry.line())
+    if edited:
+        print()
+        print(f"  {len(edited)} generated files have been edited since livingeval "
+              f"wrote them:")
+        for name in edited:
+            print(f"    {name}")
+        print("  They will be left alone. Pass --force to overwrite them.")
+
+    if not change.has_changes and not args.force:
+        print()
+        print("  nothing to write")
+        return 0
+    if args.dry_run:
+        print()
+        print("  --dry-run: nothing written")
+        return 0
+
+    protect = set() if args.force else set(edited)
+    metrics = [m for p in plan.pipelines for m in p.metrics]
+    goldens = build_goldens(metrics, scope=manifest.scope or "this product")
+    emission = emit(plan, goldens, root, judge=manifest.judge.split(":", 1)[-1],
+                    scope=manifest.scope, protect=protect)
+
+    print()
+    print(f"  wrote {len(emission.files)} files")
+    if emission.preserved:
+        total = sum(emission.preserved.values())
+        print(f"  preserved {total} human-written answers across "
+              f"{len(emission.preserved)} datasets")
+    if emission.skipped:
+        print(f"  skipped {len(emission.skipped)} edited files")
+    return 0
+
+
+def cmd_drift(args) -> int:
+    """Is the generated suite still describing production traffic?"""
+    from livingeval.drift import measure_drift
+
+    package = _generated_package(args.path)
+    if package is None:
+        print("no generated suite here. Run `livingeval init` first.")
+        return 1
+    traces = _load_traces(args.traces)
+    report = measure_drift(package, traces, top=args.top,
+                           include_probes=args.include_probes, seed=args.seed)
+    print(report.render())
+    if args.out:
+        import dataclasses
+        Path(args.out).write_text(
+            json.dumps(dataclasses.asdict(report), indent=2), encoding="utf-8")
+    return 2 if report.verdict == "BLIND" else 0
+
+
 def _gate_generated(args) -> int:
     from livingeval.gate.regress import compare, load_run
 
@@ -772,6 +860,28 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--effect", type=float, default=0.40)
     sp.add_argument("--n-sim", type=int, default=300)
     sp.set_defaults(func=cmd_power)
+
+    sp = sub.add_parser("sync",
+                        help="rescan the codebase and update the suite to match")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    sp.add_argument("--force", action="store_true",
+                    help="overwrite generated files a human has edited")
+    sp.add_argument("--verbose", action="store_true", help="list unchanged sites too")
+    sp.add_argument("--include-tests", action="store_true")
+    sp.set_defaults(func=cmd_sync)
+
+    sp = sub.add_parser("drift",
+                        help="does the generated suite still cover your traffic")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--traces", required=True,
+                    help="a .jsonl glob, a Langfuse/OTel export, or a store DSN")
+    sp.add_argument("--top", type=int, default=5)
+    sp.add_argument("--include-probes", action="store_true",
+                    help="count synthetic safety probes as coverage (overstates it)")
+    sp.add_argument("--seed", type=int, default=0)
+    sp.add_argument("--out", default=None)
+    sp.set_defaults(func=cmd_drift)
 
     sp = sub.add_parser("baseline",
                         help="measure real noise thresholds for a generated suite")

@@ -331,7 +331,8 @@ def run_init(root: Path, assume_yes: bool = False, dry_run: bool = False,
     rule("6. Writing")
     metrics = [m for p in plan.pipelines for m in p.metrics]
     goldens = build_goldens(metrics, scope=answers.scope or "this product")
-    emission = emit(plan, goldens, root, judge=answers.judge.split(":", 1)[-1])
+    emission = emit(plan, goldens, root, judge=answers.judge.split(":", 1)[-1],
+                    scope=answers.scope)
     config = write_project_config(root, answers, plan)
     env = write_env(root, answers)
 

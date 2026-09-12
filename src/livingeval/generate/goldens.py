@@ -28,7 +28,8 @@ from pathlib import Path
 
 from livingeval.plan.taxonomy import Metric, Reference
 
-__all__ = ["Case", "GoldenSet", "build", "write"]
+__all__ = ["Case", "GoldenSet", "build", "merge_golden", "write",
+           "write_goldens_preserving"]
 
 
 @dataclass
@@ -220,3 +221,63 @@ def write(sets: dict[str, GoldenSet], directory: Path) -> list[Path]:
         path.write_text(golden.to_json(), encoding="utf-8")
         written.append(path)
     return written
+
+
+# ---------------------------------------------------------------------------
+# merging -- the one invariant that must never be optional
+# ---------------------------------------------------------------------------
+
+
+def merge_golden(existing: dict, fresh: dict) -> tuple[dict, int]:
+    """Merge a regenerated golden set into one that may carry human answers.
+
+    Existing cases win outright. New cases are appended. Nothing is ever
+    removed, because a case a person wrote an answer for is evidence about the
+    application, and the scanner deciding it is no longer relevant is not a
+    good enough reason to throw evidence away.
+
+    Returns the merged set and the number of human answers preserved.
+    """
+    by_id = {case["id"]: case for case in existing.get("cases", [])}
+    answered = sum(1 for case in by_id.values()
+                   if case.get("expected") is not None)
+
+    appended = 0
+    for case in fresh.get("cases", []):
+        if case["id"] not in by_id:
+            by_id[case["id"]] = case
+            appended += 1
+
+    merged = dict(fresh)
+    merged["cases"] = sorted(by_id.values(), key=lambda c: c["id"])
+    # A set is complete when nothing in it still wants an answer. Recomputed
+    # rather than copied, because appending an unanswered case to a finished
+    # dataset makes it unfinished again.
+    needs_answer = [c for c in merged["cases"]
+                    if c.get("note", "").startswith("TODO")
+                    and c.get("expected") is None]
+    merged["complete"] = fresh.get("complete", False) and not needs_answer
+    merged["appended"] = appended
+    return merged, answered
+
+
+def write_goldens_preserving(package: Path, fresh: dict) -> dict[str, int]:
+    """Write golden sets, merging into any that already exist."""
+    directory = package / "goldens"
+    directory.mkdir(parents=True, exist_ok=True)
+    preserved: dict[str, int] = {}
+
+    for key, golden in fresh.items():
+        path = directory / f"{key.replace('.', '_')}.json"
+        payload = json.loads(golden.to_json())
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                existing = {}
+            payload, answers = merge_golden(existing, payload)
+            if answers:
+                preserved[key] = answers
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    return preserved

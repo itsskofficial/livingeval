@@ -261,6 +261,70 @@ python -m livingeval_evals.run_suite     # writes candidate.json
 livingeval gate                          # PASS (0) / FAIL (1) / BLIND (2)
 ```
 
+### Keep it in step with the code
+
+```sh
+livingeval sync --dry-run    # what changed, and what would be written
+livingeval sync              # update the suite to match the code
+```
+
+A suite generated once describes the application as it was that day, which is
+the exact decay this library exists to measure — shipping it in the tool itself
+would be absurd. `sync` rescans, diffs against a manifest, and reports before it
+writes:
+
+```
+1 new call sites, 0 changed, 0 gone -> 5 metrics to add, 0 now unused
+
+  + svc/agent.py:8 act()  (agent)
+
+  + component.tool_selection
+  + workflow.task_completion
+  ...
+```
+
+The diff is over *what decides the metrics*, not the source, so a call site that
+slid twelve lines down is unchanged and one that gained a retriever is not.
+
+**It will not destroy your work.** Golden answers are merged, never
+regenerated — new cases appended, existing answers untouched. Generated files
+you have edited are reported and skipped. Call sites that vanished are reported
+stale, never deleted, because static analysis cannot tell "deleted" from "moved
+somewhere I can't see".
+
+```
+  wrote 14 files
+  preserved 3 human-written answers across 1 datasets
+  skipped 1 edited files
+```
+
+### Watch it drift away from your traffic
+
+```sh
+livingeval drift --traces 'traces/*.jsonl'        # or a Langfuse/OTel export
+```
+
+The suite is written from source code, and source code says nothing about what
+users actually send. Every metric can be green while most of your traffic sits
+somewhere none of the cases go:
+
+```
+-> BLIND  coverage 8.3% of 120 traces
+   below 70%: most of your traffic is unrepresented, so a green suite is not
+   evidence the application is working
+
+  traffic this suite cannot see:
+
+     24.2% of traffic,  0.0% covered  billing charged, this month, twice
+     24.2% of traffic,  0.0% covered  refund for, refund, the annual plan
+     15.8% of traffic,  0.0% covered  subscription, transfer, to colleague
+```
+
+A number tells you to act; the cluster table tells you what to write. Those
+clusters feed the review queue in `livingeval serve`, and `livingeval promote`
+merges the cases a human confirms back into the suite — which is the loop that
+makes it *living*.
+
 `gate` compares every metric, direction-aware, and where the suite recorded
 per-case outcomes it runs exact McNemar on them rather than comparing against a
 threshold. Twenty-two metrics is twenty-two tests, so it corrects across the

@@ -144,6 +144,9 @@ type = "layers"
 layers = [
     "livingeval.cli",
     "livingeval.wizard",
+    "livingeval.sync",
+    "livingeval.drift",
+    "livingeval.baseline",
     "livingeval.generate",
     "livingeval.plan",
     "livingeval.discover",

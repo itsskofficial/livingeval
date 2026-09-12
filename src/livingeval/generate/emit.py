@@ -24,10 +24,12 @@ harness raises with a message naming the file and line to fix.
 from __future__ import annotations
 
 import textwrap
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from livingeval.generate.goldens import GoldenSet
+from livingeval.generate.goldens import GoldenSet, write_goldens_preserving
+from livingeval.manifest import FileRecord, Manifest, SiteRecord, digest, site_digest
 from livingeval.plan.planner import Pipeline, Plan
 from livingeval.plan.taxonomy import Mechanism, Method, Metric, Reference
 
@@ -44,6 +46,8 @@ class Emission:
     goldens: list[Path]
     runnable: int
     blocked: int
+    preserved: dict[str, int] = field(default_factory=dict)
+    skipped: list[str] = field(default_factory=list)
 
 
 def _wrap(text: str, width: int = 76, indent: str = "",
@@ -485,21 +489,34 @@ def _explanation(plan: Plan, goldens: dict[str, GoldenSet]) -> str:
 
 
 def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
-         judge: str = "gpt-4o-mini") -> Emission:
+         judge: str = "gpt-4o-mini", scope: str = "",
+         protect: set[str] | None = None) -> Emission:
     """Write the whole suite under `root/livingeval_evals`.
 
     A package rather than a loose directory, because `run_suite` imports the
     eval modules by name and a plain folder makes that depend on the working
     directory.
+
+    `protect` names files the caller has determined a human edited since they
+    were written. They are skipped and reported. Golden sets are always merged
+    rather than replaced, whether or not they are protected -- see
+    `sync.write_goldens_preserving` for why that one is not negotiable.
     """
     package = root / "livingeval_evals"
     package.mkdir(parents=True, exist_ok=True)
+    protect = protect or set()
     written: list[Path] = []
+    skipped: list[str] = []
+    records: list[FileRecord] = []
 
-    def put(name: str, text: str) -> None:
+    def put(name: str, text: str, kind: str = "eval") -> None:
+        if name in protect:
+            skipped.append(name)
+            return
         path = package / name
         path.write_text(text, encoding="utf-8")
         written.append(path)
+        records.append(FileRecord(path=name, written=digest(text), kind=kind))
 
     put("__init__.py", f'{BANNER}\n"""Generated eval suite. See WHY.md."""\n')
     put("harness.py", _harness(plan, judge))
@@ -519,17 +536,33 @@ def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
         for p in plan.pipelines for m in p.metrics
     }
     put("metric_registry.py", REGISTRY.format(
-        banner=BANNER, registry=_pretty(registry)))
+        banner=BANNER, registry=_pretty(registry)), "registry")
     put("run_suite.py", RUNNER.format(
-        banner=BANNER, pipelines=[p.slug for p in plan.pipelines]))
-    put("WHY.md", _explanation(plan, goldens))
+        banner=BANNER, pipelines=[p.slug for p in plan.pipelines]), "eval")
+    put("WHY.md", _explanation(plan, goldens), "doc")
 
-    from livingeval.generate.goldens import write as write_goldens
-    golden_paths = write_goldens(goldens, package / "goldens")
+    # Golden sets go through the merge path unconditionally. A dataset somebody
+    # spent an afternoon labelling must survive every regeneration, and making
+    # that depend on a flag is how it eventually does not.
+    preserved = write_goldens_preserving(package, goldens)
+    golden_paths = sorted((package / "goldens").glob("*.json"))
+
+    Manifest(
+        generated_at=time.time(), judge=judge, scope=scope,
+        sites=[SiteRecord(ident=s.ident, path=str(s.path), function=s.function,
+                          provider=s.provider, archetype=s.archetype,
+                          fingerprint=site_digest(s), line=s.line)
+               for s in plan.sites],
+        files=records,
+        goldens={k: {"complete": g.complete, "cases": len(g.cases)}
+                 for k, g in goldens.items()},
+        metrics=sorted({m.key for p in plan.pipelines for m in p.metrics}),
+    ).save(package)
 
     return Emission(
         files=written, goldens=golden_paths,
-        runnable=plan.runnable_count, blocked=plan.blocked_count)
+        runnable=plan.runnable_count, blocked=plan.blocked_count,
+        preserved=preserved, skipped=skipped)
 
 
 def _pretty(mapping: dict) -> str:

@@ -108,10 +108,16 @@ def cluster(
         centroid = x.mean(axis=0, keepdims=True) if n else np.zeros((1, x.shape[1]))
         return Clustering(np.zeros(n, dtype=int), 1, float("nan"), {}, space, seed, centroid)
 
+    # Asking for more clusters than there are *distinct* points is not merely
+    # noisy -- KMeans silently returns fewer, so the silhouette being compared
+    # belongs to a different k than the one on the axis. Traffic with heavy
+    # repetition (templated prompts, a handful of intents) hits this routinely.
+    distinct = int(np.unique(np.round(x, 6), axis=0).shape[0])
+
     candidates: dict[int, float] = {}
     if k == "auto":
         lo, hi = k_range
-        hi = int(min(hi, max(2, n // 10)))
+        hi = int(min(hi, max(2, n // 10), distinct))
         lo = int(min(lo, hi))
         best_k, best_s = max(2, lo), -1.0
         for candidate in range(max(2, lo), hi + 1):
@@ -126,7 +132,8 @@ def cluster(
     else:
         chosen = int(k)
 
-    km = KMeans(n_clusters=min(chosen, n), n_init=10, random_state=seed).fit(x)
+    km = KMeans(n_clusters=max(1, min(chosen, distinct)), n_init=10,
+                random_state=seed).fit(x)
     labels = km.labels_.astype(int)
     sil = (
         float(silhouette_score(x, labels, metric="cosine"))
