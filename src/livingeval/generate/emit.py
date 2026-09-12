@@ -924,6 +924,16 @@ def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
                 "catches": m.catches}
         for p in plan.pipelines for m in p.metrics
     }
+    # The harness reports the mean beside the p95 because it costs nothing and
+    # separates "one slow call" from "everything got slower". Emitted and not
+    # registered, it took the default direction -- higher is better -- and the
+    # first live gate duly reported a run that got slower as an improvement.
+    if "application.latency_p95" in registry:
+        registry["application.latency_mean"] = {
+            "direction": "lower", "noise": registry["application.latency_p95"]["noise"],
+            "measured": False, "risk": "operational",
+            "catches": "a slowdown across the board rather than in the tail"}
+
     # A measured threshold cost real API calls -- `baseline --runs 10` is ten
     # runs of the whole suite -- and it describes the metric, not the code, so
     # a rescan is no reason to throw it away and go back to the guess. Carried

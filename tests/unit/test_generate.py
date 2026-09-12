@@ -231,3 +231,14 @@ def test_the_structured_metrics_arrive_already_configured(tmp_path):
     assert "'currency': ['USD', 'EUR']" in source
     # And a parsed object is recognised without the user wrapping it.
     assert "model_dump" in source
+
+
+def test_latency_mean_is_registered_with_the_direction_it_actually_has(suite):
+    """The harness reports it beside the p95. Unregistered it took the default
+    direction, and the first live gate reported a run that got slower as an
+    improvement."""
+    root, *_ = suite
+    source = (root / "livingeval_evals" / "metric_registry.py").read_text(encoding="utf-8")
+    namespace: dict = {}
+    exec(compile(source, "metric_registry.py", "exec"), namespace)
+    assert namespace["REGISTRY"]["application.latency_mean"]["direction"] == "lower"
