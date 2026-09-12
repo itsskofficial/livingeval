@@ -53,6 +53,24 @@ class OracleJudge:
     `noise` flips a label with that probability. `bias_fp` and `bias_fn` add
     asymmetric error on top, because real judges are rarely symmetric - an
     LLM-as-judge asked "did the agent do the right thing?" tends to say yes.
+
+    **The noise is a function of the trace, not of call order.** Each trace's
+    draws come from a generator seeded with `seed` and the trace id, so the same
+    trace gets the same verdict whatever this judge has scored before it. A
+    single advancing RNG -- the obvious implementation, and what this was --
+    makes the verdict depend on how many other traces happened to pass through
+    first, which means:
+
+    - the same suite scores differently before and after a ladder run, because
+      the ladder consumed 300 draws on its way past;
+    - a recorded golden number silently encodes the order the recording script
+      happened to call things in, and a library upgrade that changes a fold
+      count moves an unrelated score;
+    - running the tests in a different order changes the answers.
+
+    All three were real. A judge whose verdict on a trace depends on what it
+    saw earlier is not a fixed judge, and every number measured against it
+    inherits that.
     """
 
     def __init__(
@@ -70,8 +88,18 @@ class OracleJudge:
         self.noise = noise
         self.bias_fp = bias_fp
         self.bias_fn = bias_fn
-        self._rng = np.random.default_rng(seed)
+        self.seed = seed
         self.name = name or f"oracle(noise={noise},fp={bias_fp},fn={bias_fn})"
+
+    def _rng_for(self, trace: Trace) -> np.random.Generator:
+        """A generator belonging to this trace alone.
+
+        `default_rng` accepts a sequence as the seed and mixes it properly, so
+        (seed, trace id) gives independent streams without hashing anything --
+        `hash()` on a string is salted per process and would put the
+        irreproducibility back in a subtler place.
+        """
+        return np.random.default_rng([self.seed, *trace.trace_id.encode("utf-8")])
 
     def __call__(self, trace: Trace) -> Verdict:
         if self.key in trace.meta:
@@ -83,12 +111,17 @@ class OracleJudge:
                 f"trace {trace.trace_id} carries no ground truth; the oracle judge is "
                 "for synthetic corpora only"
             )
-        if self.noise and self._rng.random() < self.noise:
-            label = 1 - label
-        if label == 0 and self.bias_fp and self._rng.random() < self.bias_fp:
-            label = 1
-        elif label == 1 and self.bias_fn and self._rng.random() < self.bias_fn:
-            label = 0
+        if self.noise or self.bias_fp or self.bias_fn:
+            # Three draws, always, whether or not each is used. Drawing only
+            # when a knob is set would make the bias stream depend on whether
+            # noise fired, which is the same order-dependence one level down.
+            flip, false_pos, false_neg = self._rng_for(trace).random(3)
+            if self.noise and flip < self.noise:
+                label = 1 - label
+            if label == 0 and self.bias_fp and false_pos < self.bias_fp:
+                label = 1
+            elif label == 1 and self.bias_fn and false_neg < self.bias_fn:
+                label = 0
         return Verdict(label=label, cost_usd=0.0)
 
 

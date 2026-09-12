@@ -445,3 +445,38 @@ def test_an_absolute_sqlite_path_stays_absolute(tmp_path, traces):
     # `C:`, which is the three-slash form and absolute anyway.
     dsn = f"sqlite:///{path.as_posix()}"
     assert len(load_traces(dsn)) == 5
+
+
+def test_the_oracle_judge_does_not_depend_on_what_it_scored_first():
+    """A judge whose verdict on a trace changes with call order is not a fixed
+    judge, and every number measured against it inherits that.
+
+    With one advancing RNG the same suite scored 0.925 before a ladder run and
+    0.950 after, because the ladder consumed 300 draws on the way past -- so a
+    recorded golden encoded the order the recording script happened to use, and
+    a scikit-learn upgrade that changed a fold count moved an unrelated score.
+    """
+    import livingeval as le
+    from livingeval import synthetic as syn
+
+    corpus = syn.shortcut(n=120, seed=7)
+    suite = le.EvalSuite.from_traces(corpus.sample(40, seed=7), name="t")
+
+    fresh = le.judge.oracle(noise=0.2, seed=3)
+    warmed = le.judge.oracle(noise=0.2, seed=3)
+    for trace in corpus:                       # 120 verdicts before it matters
+        warmed(trace)
+
+    assert le.run_suite(suite, fresh).score == le.run_suite(suite, warmed).score
+
+
+def test_the_oracle_judge_still_applies_the_noise_it_promises():
+    """Order independence is worthless if it was bought by never flipping."""
+    import livingeval as le
+    from livingeval import synthetic as syn
+
+    corpus = syn.shortcut(n=400, seed=11)
+    clean = le.judge.oracle(noise=0.0, seed=1)
+    noisy = le.judge.oracle(noise=0.3, seed=1)
+    flipped = sum(1 for t in corpus if clean(t).label != noisy(t).label)
+    assert 0.2 < flipped / len(corpus) < 0.4
