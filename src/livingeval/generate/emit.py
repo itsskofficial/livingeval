@@ -857,6 +857,26 @@ def _explanation(plan: Plan, goldens: dict[str, GoldenSet]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _measured_noise(package: Path) -> dict[str, dict]:
+    """Thresholds an earlier `livingeval baseline` measured, if any."""
+    path = package / "metric_registry.py"
+    if not path.exists():
+        return {}
+    namespace: dict = {}
+    try:
+        exec(compile(path.read_text(encoding="utf-8"), "metric_registry.py", "exec"),
+             namespace)
+    except Exception:
+        return {}
+    carried = {}
+    for key, entry in (namespace.get("REGISTRY") or {}).items():
+        if isinstance(entry, dict) and entry.get("measured"):
+            carried[key] = {"noise": entry["noise"], "measured": True}
+            if entry.get("runs"):
+                carried[key]["runs"] = entry["runs"]
+    return carried
+
+
 def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
          judge: str = "openai:gpt-4o-mini", scope: str = "",
          protect: set[str] | None = None) -> Emission:
@@ -904,6 +924,13 @@ def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
                 "catches": m.catches}
         for p in plan.pipelines for m in p.metrics
     }
+    # A measured threshold cost real API calls -- `baseline --runs 10` is ten
+    # runs of the whole suite -- and it describes the metric, not the code, so
+    # a rescan is no reason to throw it away and go back to the guess. Carried
+    # forward for the same reason golden answers are.
+    for key, entry in _measured_noise(package).items():
+        if key in registry:
+            registry[key].update(entry)
     put("metric_registry.py", REGISTRY.format(
         banner=BANNER, registry=_pretty(registry)), "registry")
     put("run_suite.py", RUNNER.format(

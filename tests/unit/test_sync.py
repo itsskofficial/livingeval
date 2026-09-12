@@ -12,6 +12,8 @@ import json
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from livingeval.discover import scan
 from livingeval.generate import build_goldens, emit
 from livingeval.generate.goldens import merge_golden
@@ -258,3 +260,35 @@ def test_site_fingerprint_ignores_line_numbers(tmp_path):
     second = scan(root)[0]
     assert second.line != first.line
     assert site_digest(second) == site_digest(first)
+
+
+def test_a_measured_noise_threshold_survives_regeneration(tmp_path):
+    """`baseline --runs 10` is ten full runs of the suite and a real API bill,
+    and the number it produces describes the metric rather than the code. A
+    rescan is no reason to throw it away and go back to the guess."""
+    import livingeval.baseline as baseline_mod
+    from livingeval.discover import scan
+    from livingeval.generate import build_goldens, emit
+    from livingeval.plan import build_plan
+
+    (tmp_path / "rag.py").write_text(textwrap.dedent(RAG), encoding="utf-8")
+    plan = build_plan(scan(tmp_path))
+    goldens = build_goldens([m for p in plan.pipelines for m in p.metrics], scope="x")
+    emit(plan, goldens, tmp_path, scope="x")
+    package = tmp_path / "livingeval_evals"
+
+    values = [0.9, 0.91, 0.9, 0.92]
+    measured = baseline_mod.Measurement(
+        key="application.toxicity", mean=0.9075, stdev=0.0096, noise=0.0192,
+        values=values)
+    baseline_mod.update_registry(package / "metric_registry.py",
+                                 {"application.toxicity": measured})
+
+    emit(plan, goldens, tmp_path, scope="x")
+
+    namespace: dict = {}
+    exec(compile((package / "metric_registry.py").read_text(encoding="utf-8"),
+                 "metric_registry.py", "exec"), namespace)
+    entry = namespace["REGISTRY"]["application.toxicity"]
+    assert entry["measured"] is True
+    assert entry["noise"] == pytest.approx(measured.noise)
