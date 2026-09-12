@@ -205,6 +205,39 @@ if __name__ == "__main__":
     return "\n".join(imports) + body
 
 
+# Metrics the generated harness cannot measure from what `call_app` returns by
+# default, and the one line of instrumentation that would fix each. Read by the
+# harness at run time and by WHY.md before anything has run, so a document
+# cannot promise a metric the suite will not produce.
+NEEDS_INSTRUMENTATION: dict[str, str] = {
+    "component.latency_component":
+        "needs per-stage timings; return {'timings': {'retrieve': 0.1, ...}} "
+        "from call_app to measure it",
+    "application.time_to_first_token":
+        "needs a streaming call; time the first chunk and return "
+        "{'ttft': seconds} from call_app",
+    "application.cost_per_query":
+        "needs the cost of the call; return {'cost': usd} from call_app",
+    "component.parameter_correctness":
+        "needs the arguments your agent passed to each tool; return "
+        "{'tools': [{'name': ..., 'args': {...}}]} from call_app, and fill in "
+        "EXPECTED_TOOL_ARGS",
+    "workflow.termination":
+        "needs the agent's iteration count; return {'steps': n} from call_app",
+    "component.schema_validity":
+        "needs the parsed object; return {'structured': obj} from call_app",
+    "component.required_fields":
+        "needs the parsed object and REQUIRED_FIELDS filled in in harness.py",
+    "component.enum_membership":
+        "needs the parsed object and ALLOWED_VALUES filled in in harness.py",
+}
+
+
+def _brief(reason: str) -> str:
+    """The instrumentation note, trimmed to fit a table cell."""
+    return reason.split(";")[0].strip()
+
+
 # ---------------------------------------------------------------------------
 # harness
 # ---------------------------------------------------------------------------
@@ -318,18 +351,7 @@ def local_metric(key: str):
 # metric that quietly produces no number is how a suite ends up reporting on
 # whatever was convenient instead of on what matters. Anything listed here as
 # unmeasured becomes BLIND at the gate rather than absent from it.
-UNMEASURABLE = {{
-    "component.latency_component":
-        "needs per-stage timings; return {{'timings': {{'retrieve': 0.1, ...}}}} "
-        "from call_app to measure it",
-    "application.time_to_first_token":
-        "needs a streaming call; time the first chunk and return "
-        "{{'ttft': seconds}} from call_app",
-    "component.parameter_correctness":
-        "needs the arguments your agent passed to each tool; return "
-        "{{'tools': [{{'name': ..., 'args': {{...}}}}]}} from call_app, and fill "
-        "in EXPECTED_TOOL_ARGS",
-}}
+UNMEASURABLE = {unmeasurable}
 
 # Structured-output expectations. The scanner can see that your code asks for a
 # schema, but not which fields are required or which values are legal -- those
@@ -658,10 +680,22 @@ def _harness(plan: Plan, judge: str) -> str:
         for p in plan.pipelines for m in p.metrics
     ) + "}"
 
+    # Only the ones with no fallback measurement at all. schema_validity and
+    # the rest are computed when call_app supplies the data and report
+    # themselves unmeasured when it does not, so listing them here would
+    # give up on them before the run.
+    hard = {k: v for k, v in NEEDS_INSTRUMENTATION.items()
+            if k in ("component.latency_component",
+                     "application.time_to_first_token",
+                     "component.parameter_correctness")}
+    unmeasurable = ("{\n" + "".join(
+        f'    "{k}":\n        {v!r},\n' for k, v in sorted(hard.items())) + "}")
+
     return HARNESS.format(
         banner=BANNER, judge=judge, thresholds=thresholds, target=target,
         discovered=discovered, plural="s" if len(sites) != 1 else "",
-        required_fields=_required_fields_hint(sites))
+        required_fields=_required_fields_hint(sites),
+        unmeasurable=unmeasurable)
 
 
 # ---------------------------------------------------------------------------
@@ -790,8 +824,12 @@ def _explanation(plan: Plan, goldens: dict[str, GoldenSet]) -> str:
                   f"*{pipeline.level.value} level, {pipeline.risk.value} risk.*", "",
                   "| metric | catches | needs |", "|---|---|---|"]
         for metric in pipeline.metrics:
-            needs = ("a reference answer from you" if metric.reference is Reference.BASED
-                     else "nothing — runs now")
+            if metric.reference is Reference.BASED:
+                needs = "a reference answer from you"
+            elif metric.key in NEEDS_INSTRUMENTATION:
+                needs = _brief(NEEDS_INSTRUMENTATION[metric.key])
+            else:
+                needs = "nothing — runs now"
             lines.append(f"| `{metric.name}` | {metric.catches} | {needs} |")
         lines.append("")
 

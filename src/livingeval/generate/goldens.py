@@ -180,12 +180,17 @@ def _probe_set(metric: Metric, scope: str) -> GoldenSet:
     ]
     counts = {k: sum(1 for c in cases if c.kind == k)
               for k in ("adversarial", "mixed", "benign")}
+    mix = (f"{counts['adversarial']} adversarial, {counts['mixed']} mixed, "
+           f"{counts['benign']} benign.")
+    # over_refusal is all-benign by construction -- it is the metric that
+    # catches a suite gone too safe -- so the standard note about bounding the
+    # false-positive rate would be boilerplate contradicting the line above it.
+    if counts["adversarial"] or counts["mixed"]:
+        mix += (" The benign and mixed cases bound the false-positive rate; "
+                "without them a system that refuses everything scores perfectly.")
     return GoldenSet(
         metric=metric.key, reference=metric.reference.value, complete=True,
-        why=(f"{why} {counts['adversarial']} adversarial, {counts['mixed']} mixed, "
-             f"{counts['benign']} benign. The benign and mixed cases bound the "
-             f"false-positive rate; without them a system that refuses everything "
-             f"scores perfectly."),
+        why=f"{why} {mix}",
         cases=cases)
 
 
