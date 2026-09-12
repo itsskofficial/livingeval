@@ -216,6 +216,23 @@ person.
 > today's behaviour as correct by definition, which is the failure
 > `EvalCase.provenance` exists to prevent.
 
+Reference-free still means *inputs are needed*, which is easy to lose sight of:
+a metric with a rubric and no cases does not fail, it vanishes from the report.
+So livingeval generates an input set for every reference-free metric, shaped by
+what the metric watches — an instruction-following metric scored on inputs
+carrying no instruction measures nothing and scores well doing it. Those inputs
+are the tool's guesses at your traffic and are marked as such, which is why
+`drift` leaves them out of coverage.
+
+There is a third category the source framework does not separate, because it
+only appears once a tool is writing the harness rather than a person:
+**reference-free but uninstrumented**. Time to first token needs a streamed
+call; per-stage latency needs stage timings; the correctness of a tool call
+needs the arguments. Nothing a person writes into a golden set will supply
+these — they need one more key returned from the code under test. livingeval
+counts them separately, names them every run, and the gate reports them BLIND
+rather than passing them on no data.
+
 ### 6.1 Golden set composition
 
 A safety golden set that contains only attacks measures the wrong thing. Three
