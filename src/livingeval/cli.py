@@ -322,7 +322,11 @@ def cmd_sync(args) -> int:
               f"wrote them:")
         for name in edited:
             print(f"    {name}")
-        print("  They will be left alone. Pass --force to overwrite them.")
+        if args.force:
+            print("  --force: overwriting them. Measured noise thresholds and "
+                  "golden answers are carried across regardless.")
+        else:
+            print("  They will be left alone. Pass --force to overwrite them.")
 
     if not change.has_changes and not args.force:
         print()

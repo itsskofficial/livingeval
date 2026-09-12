@@ -594,3 +594,58 @@ immediately and the protection would be imaginary. Refusing is the only honest o
 **Consequence.** The same list generates `deploy/supabase/001_init.sql` and
 `supabase/migrations/`, and a test asserts the committed file matches the code. Three
 copies of a schema that can drift is two too many.
+
+---
+
+## 34. A planned metric produces a number or names what it is missing
+
+**Decision.** Every metric in the plan appears in the result file: as a score, or in
+`unmeasured` with the reason and the one line that would fix it. `livingeval gate`
+reports the second group BLIND rather than passing them.
+
+**Why.** A metric with no data does not fail. It disappears — no error, no zero, no
+row — and the report that remains is a report on whatever happened to have data. A
+live run of a twenty-two-metric suite came back green with sixteen metrics in it and
+nothing anywhere saying so. That is worse than a failing suite, because a failing suite
+gets looked at.
+
+**Consequence.** Reference-free metrics needed inputs they did not have, so they get
+generated ones. Telemetry metrics needed the run rather than their own pipeline, so
+they are computed once at the end. What genuinely cannot be measured — time to first
+token without a streamed call — is named every run.
+
+---
+
+## 35. Generated inputs are marked synthetic and excluded from coverage
+
+**Decision.** Inputs this tool writes — safety probes and the input sets that
+reference-free metrics run on — carry `kind: "synthetic"` and do not count towards
+`drift` coverage unless asked for.
+
+**Why.** Coverage answers "does this suite still describe your traffic". Cases the tool
+invented describe the tool. Counting them inflates the number in exactly the situation
+it exists to detect: a fresh suite, no real cases yet, and a coverage figure that says
+everything is fine.
+
+**Consequence.** A generated suite reports low coverage on day one, which is correct
+and is the prompt to replace the inputs with real questions. `--include-probes`
+overrides it and the report says what that costs.
+
+---
+
+## 36. Promotion carries the question, not the answer
+
+**Decision.** A confirmed review-queue case is written into the golden sets as a real
+input. Its `expected` is filled in only if the reviewer typed one; a plain confirmation
+leaves the answer owed and the set incomplete.
+
+**Why.** A reviewer marking an output acceptable has judged what the system said. That
+is not the answer a domain expert would give, and the two come apart on exactly the
+cases worth having: a plausible, agreeable, subtly wrong answer is the one that passes
+review. Promoting it as the reference would encode the failure as the standard — the
+same circularity as [#10](#10-mined-cases-require-an-explicit-named-confirmation),
+one step further along.
+
+**Consequence.** Promotion improves the inputs immediately and the answers only when
+somebody writes them. A confirmed *failure* is the most valuable row it produces: a
+real question known to break the system, waiting on the answer it should have given.
