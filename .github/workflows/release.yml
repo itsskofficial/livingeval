@@ -1,0 +1,62 @@
+# Publish to PyPI on a version tag.
+#
+# No API token anywhere. PyPI's trusted publishing exchanges this workflow's
+# OIDC identity for a short-lived upload token, so there is no long-lived
+# secret in the repository to leak, rotate or forget. Enable it once at
+# https://pypi.org/manage/project/livingeval/settings/publishing/ with:
+#
+#     owner        itsskofficial
+#     repository   livingeval
+#     workflow     release.yml
+#     environment  pypi
+#
+# The build is verified before it is uploaded, and the upload happens from a
+# separate job whose only permission is the one it needs.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          python -m twine check dist/*
+      - name: The wheel installs and runs on its own
+        # The default install is meant to need nothing but numpy, scipy and
+        # scikit-learn. A fresh interpreter that can scan a file proves it,
+        # and proves it before the artifact is public rather than after.
+        run: |
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install --quiet dist/*.whl
+          mkdir -p /tmp/probe
+          printf 'from openai import OpenAI\n\ndef ask(q):\n    return OpenAI().chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": q}])\n' > /tmp/probe/app.py
+          cd /tmp/probe && /tmp/fresh/bin/livingeval scan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write        # the only thing this job may do
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
