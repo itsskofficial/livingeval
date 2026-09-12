@@ -373,3 +373,29 @@ def test_a_binding_defined_below_its_use_is_still_found(tmp_path):
                 return workflow
     ''')
     assert site.function == "run"
+
+
+def test_schema_field_names_and_labels_are_kept(tmp_path):
+    """The field count decides the archetype; the names decide whether the
+    structured-output metrics can run at all. The visitor is already standing
+    in front of them, and used to throw them away."""
+    site = only(tmp_path, "bill.py", '''
+        from typing import Literal, Optional
+        from pydantic import BaseModel
+        from openai import OpenAI
+
+        class Invoice(BaseModel):
+            vendor: str
+            total: float
+            currency: Literal["USD", "EUR", "INR"]
+            note: Optional[str] = None
+
+        def extract(text):
+            return OpenAI().responses.create(
+                model="gpt-4o-mini", input=text, response_format=Invoice)
+    ''')
+    fields = {f["name"]: f for f in site.evidence.schema_fields["Invoice"]}
+    assert {f for f, spec in fields.items() if spec["required"]} == {
+        "vendor", "total", "currency"}
+    assert fields["note"]["required"] is False
+    assert fields["currency"]["labels"] == ["USD", "EUR", "INR"]

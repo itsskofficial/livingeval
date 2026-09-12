@@ -205,3 +205,29 @@ def test_input_sets_are_shaped_by_what_the_metric_watches(suite):
     assert "exactly three" in texts and "one sentence" in texts
     vague = " ".join(_INPUT_SETS["clarification"][0])
     assert all(len(t) < 90 for t in _INPUT_SETS["clarification"][0]), vague
+
+
+def test_the_structured_metrics_arrive_already_configured(tmp_path):
+    """These are the metrics that make a generated suite worth something on
+    day one. Requiring a person to retype the field names first means they do
+    nothing on day one."""
+    from livingeval.discover import scan
+
+    (tmp_path / "bill.py").write_text(
+        'from typing import Literal\n'
+        'from pydantic import BaseModel\n'
+        'from openai import OpenAI\n\n'
+        'class Invoice(BaseModel):\n'
+        '    vendor: str\n'
+        '    currency: Literal["USD", "EUR"]\n\n'
+        'def extract(text):\n'
+        '    return OpenAI().responses.create(model="gpt-4o", input=text,\n'
+        '                                     response_format=Invoice)\n',
+        encoding="utf-8")
+    plan = build_plan(scan(tmp_path))
+    emit(plan, {}, tmp_path)
+    source = (tmp_path / "livingeval_evals" / "harness.py").read_text(encoding="utf-8")
+    assert "REQUIRED_FIELDS: list = ['vendor', 'currency']" in source
+    assert "'currency': ['USD', 'EUR']" in source
+    # And a parsed object is recognised without the user wrapping it.
+    assert "model_dump" in source

@@ -31,7 +31,7 @@ from pathlib import Path
 from livingeval.generate.goldens import GoldenSet, write_goldens_preserving
 from livingeval.manifest import FileRecord, Manifest, SiteRecord, digest, site_digest
 from livingeval.plan.planner import Pipeline, Plan
-from livingeval.plan.taxonomy import Mechanism, Method, Metric, Reference
+from livingeval.plan.taxonomy import CATALOGUE, Mechanism, Method, Metric, Reference
 
 __all__ = ["Emission", "emit"]
 
@@ -205,37 +205,15 @@ if __name__ == "__main__":
     return "\n".join(imports) + body
 
 
-# Metrics the generated harness cannot measure from what `call_app` returns by
-# default, and the one line of instrumentation that would fix each. Read by the
-# harness at run time and by WHY.md before anything has run, so a document
-# cannot promise a metric the suite will not produce.
+# What the generated harness cannot measure from what `call_app` returns by
+# default, and the line that would fix each -- taken from the catalogue, which
+# is where a metric's requirements are declared. The harness reports these at
+# run time and WHY.md promises them before anything has run; written twice they
+# would disagree the first time either changed, and the disagreement would be a
+# document claiming a metric runs when it does not.
 NEEDS_INSTRUMENTATION: dict[str, str] = {
-    "component.latency_component":
-        "needs per-stage timings; return {'timings': {'retrieve': 0.1, ...}} "
-        "from call_app to measure it",
-    "application.time_to_first_token":
-        "needs a streaming call; time the first chunk and return "
-        "{'ttft': seconds} from call_app",
-    "application.cost_per_query":
-        "needs the cost of the call; return {'cost': usd} from call_app",
-    "component.parameter_correctness":
-        "needs the arguments your agent passed to each tool; return "
-        "{'tools': [{'name': ..., 'args': {...}}]} from call_app, and fill in "
-        "EXPECTED_TOOL_ARGS",
-    "workflow.termination":
-        "needs the agent's iteration count; return {'steps': n} from call_app",
-    "component.schema_validity":
-        "needs the parsed object; return {'structured': obj} from call_app",
-    "component.required_fields":
-        "needs the parsed object and REQUIRED_FIELDS filled in in harness.py",
-    "component.enum_membership":
-        "needs the parsed object and ALLOWED_VALUES filled in in harness.py",
+    m.key: m.needs_instrumentation for m in CATALOGUE if m.needs_instrumentation
 }
-
-
-def _brief(reason: str) -> str:
-    """The instrumentation note, trimmed to fit a table cell."""
-    return reason.split(";")[0].strip()
 
 
 # ---------------------------------------------------------------------------
@@ -353,13 +331,13 @@ def local_metric(key: str):
 # unmeasured becomes BLIND at the gate rather than absent from it.
 UNMEASURABLE = {unmeasurable}
 
-# Structured-output expectations. The scanner can see that your code asks for a
-# schema, but not which fields are required or which values are legal -- those
-# live in a class it does not import. Fill these in and the two metrics below
-# start measuring; leave them and they report as unmeasured rather than
-# passing vacuously.
-REQUIRED_FIELDS: list[str] = {required_fields}
-ALLOWED_VALUES: dict = {{}}     # {{"field": ["label_a", "label_b"]}}
+# Structured-output expectations, read out of the schema classes the scanner
+# found. Required means annotated, not Optional, and with no default. Check
+# them: a schema assembled at runtime, or one that lives in a module the
+# scanner did not reach, will come through empty here, and an empty list makes
+# the metric report itself unmeasured rather than pass vacuously.
+REQUIRED_FIELDS: list = {required_fields}
+ALLOWED_VALUES: dict = {allowed_values}
 
 
 def _normalise(text: str) -> str:
@@ -621,6 +599,17 @@ TARGET_KNOWN = '''def call_app(question: str) -> dict:
         out = dict(result)
         out["answer"] = result.get("answer", "")
         return out
+    # A parsed object recognised without being told. An extraction or
+    # classification call returns a Pydantic model or a dataclass, and
+    # requiring a wrapper before the schema metrics do anything would mean the
+    # metrics that make a generated suite worth having on day one do nothing on
+    # day one.
+    if hasattr(result, "model_dump"):
+        return {{"answer": str(result), "structured": result.model_dump()}}
+    if hasattr(result, "__dataclass_fields__"):
+        import dataclasses
+
+        return {{"answer": str(result), "structured": dataclasses.asdict(result)}}
     return {{"answer": str(result), "context": None}}
 '''
 
@@ -642,21 +631,29 @@ TARGET_UNKNOWN = '''def call_app(question: str) -> dict:
 '''
 
 
-def _required_fields_hint(sites: list) -> str:
-    """A seed for REQUIRED_FIELDS, and a comment naming what it came from.
+def _schema_expectations(sites: list) -> tuple[str, str]:
+    """REQUIRED_FIELDS and ALLOWED_VALUES, from the schemas the scanner read.
 
-    Static analysis sees that a schema is asked for and how many fields it has,
-    not what they are called -- those are attributes of a class in a module the
-    scanner does not import. Rather than guess names that will silently never
-    match, this leaves the list empty and says which schema to read.
+    Every site's schemas are merged. Two schemas with a field of the same name
+    and different label sets would otherwise silently overwrite each other, so
+    the labels are unioned -- a value legal in either is not a violation.
     """
-    shapes: dict[str, tuple[int, bool]] = {}
+    required: list[str] = []
+    allowed: dict[str, list[str]] = {}
+    named: list[str] = []
     for site in sites:
-        shapes.update(site.evidence.schema_shapes)
-    if not shapes:
-        return "[]"
-    named = ", ".join(f"{n} ({c} fields)" for n, (c, _) in sorted(shapes.items()))
-    return f"[]     # schemas found: {named}"
+        for schema, fields in sorted(site.evidence.schema_fields.items()):
+            named.append(schema)
+            for spec in fields:
+                if spec["required"] and spec["name"] not in required:
+                    required.append(spec["name"])
+                if spec["labels"]:
+                    merged = allowed.setdefault(spec["name"], [])
+                    merged += [v for v in spec["labels"] if v not in merged]
+    if not named:
+        return "[]", "{}"
+    comment = f"  # from {', '.join(dict.fromkeys(named))}"
+    return repr(required) + comment, repr(allowed)
 
 
 def _harness(plan: Plan, judge: str) -> str:
@@ -684,17 +681,22 @@ def _harness(plan: Plan, judge: str) -> str:
     # the rest are computed when call_app supplies the data and report
     # themselves unmeasured when it does not, so listing them here would
     # give up on them before the run.
+    # Only the ones the harness has no fallback for at all. schema_validity and
+    # the rest compute themselves when call_app supplies the data and report
+    # themselves unmeasured when it does not, so listing them here would give
+    # up on them before the run.
     hard = {k: v for k, v in NEEDS_INSTRUMENTATION.items()
             if k in ("component.latency_component",
                      "application.time_to_first_token",
                      "component.parameter_correctness")}
     unmeasurable = ("{\n" + "".join(
         f'    "{k}":\n        {v!r},\n' for k, v in sorted(hard.items())) + "}")
+    required_fields, allowed_values = _schema_expectations(sites)
 
     return HARNESS.format(
         banner=BANNER, judge=judge, thresholds=thresholds, target=target,
         discovered=discovered, plural="s" if len(sites) != 1 else "",
-        required_fields=_required_fields_hint(sites),
+        required_fields=required_fields, allowed_values=allowed_values,
         unmeasurable=unmeasurable)
 
 
@@ -826,8 +828,8 @@ def _explanation(plan: Plan, goldens: dict[str, GoldenSet]) -> str:
         for metric in pipeline.metrics:
             if metric.reference is Reference.BASED:
                 needs = "a reference answer from you"
-            elif metric.key in NEEDS_INSTRUMENTATION:
-                needs = _brief(NEEDS_INSTRUMENTATION[metric.key])
+            elif metric.needs_instrumentation:
+                needs = metric.needs_instrumentation
             else:
                 needs = "nothing — runs now"
             lines.append(f"| `{metric.name}` | {metric.catches} | {needs} |")

@@ -243,6 +243,18 @@ def explain_plan(plan: Plan) -> None:
                   "Filling them from your current output would\n   build a suite that "
                   "passes because it was harvested from what the\n   model already does."))
         print()
+    if plan.wiring_count:
+        print(yellow(f"   {plan.wiring_count} metrics need a line of "
+                     f"instrumentation."))
+        print(dim("   Static analysis can see that a call is made; it cannot see"))
+        print(dim("   how long the first token took, or what a tool was called"))
+        print(dim("   with. Each run names these and the key to return from"))
+        print(dim("   call_app, and the gate reports them BLIND rather than"))
+        print(dim("   passing them on no data."))
+        for key in dict.fromkeys(m.key for p_ in plan.pipelines
+                                 for m in p_.needs_wiring):
+            print(dim(f"      {key}"))
+        print()
 
 
 def write_env(root: Path, answers: Answers) -> Path | None:
@@ -349,6 +361,9 @@ def run_init(root: Path, assume_yes: bool = False, dry_run: bool = False,
           f"across {len(plan.pipelines)} pipelines.")
     print(f"   {complete} datasets are complete; "
           f"{len(goldens) - complete} await your answers.")
+    if plan.wiring_count:
+        print(f"   {plan.wiring_count} more will run once call_app returns what "
+              f"they read.")
 
     if answers.assumed:
         print()

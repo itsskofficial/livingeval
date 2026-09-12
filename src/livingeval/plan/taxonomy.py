@@ -124,11 +124,23 @@ class Metric:
     triangulates: tuple[str, ...] = ()
     needs: tuple[str, ...] = ()
     geval_criterion: str | None = None
+    # What the generated harness cannot see without one more line from you, and
+    # the line. Static analysis can tell that a call is made; it cannot tell how
+    # long the first token took or what the tool was called with. Saying so is
+    # the difference between a metric that is missing and a metric that is
+    # reported as passing on no data.
+    needs_instrumentation: str = ""
 
     @property
     def automatable(self) -> bool:
-        """Whether this can ship runnable without a human writing answers first."""
-        return self.reference is Reference.FREE
+        """Whether this can ship runnable with nothing further from you.
+
+        Two distinct ways to fall short of that, and conflating them sends
+        people to the wrong file: a reference-based metric wants an answer
+        written into a golden set, and an instrumented one wants a key added to
+        what `call_app` returns.
+        """
+        return self.reference is Reference.FREE and not self.needs_instrumentation
 
     @property
     def key(self) -> str:
@@ -299,7 +311,7 @@ _AGENT = [
            "Whether the tool chosen is the appropriate one for the task, "
            "given the tools available. Judge the choice, not the outcome. ")),
 
-    _m(name="parameter_correctness", level=Level.COMPONENT, risk=Risk.QUALITY,
+    _m(name="parameter_correctness", needs_instrumentation="return {'tools': [{'name': ..., 'args': {...}}]} and fill in EXPECTED_TOOL_ARGS", level=Level.COMPONENT, risk=Risk.QUALITY,
        method=Method.PROGRAMMATIC, reference=Reference.FREE,
        mechanism=Mechanism.TELEMETRY, archetypes=(Archetype.AGENT,),
        component="agent", noise_hint=0.0,
@@ -313,7 +325,7 @@ _AGENT = [
            "Whether the trajectory actually accomplishes the stated task, "
            "rather than whether the individual steps were reasonable. ")),
 
-    _m(name="termination", level=Level.WORKFLOW, risk=Risk.OPERATIONAL,
+    _m(name="termination", needs_instrumentation="return {'steps': n} from call_app", level=Level.WORKFLOW, risk=Risk.OPERATIONAL,
        method=Method.PROGRAMMATIC, reference=Reference.FREE,
        mechanism=Mechanism.TELEMETRY, archetypes=(Archetype.AGENT,),
        higher_is_better=True, noise_hint=0.0,
@@ -436,20 +448,20 @@ _OPERATIONAL = [
        higher_is_better=False, noise_hint=0.15,
        catches="the tail latency users actually complain about"),
 
-    _m(name="latency_component", level=Level.COMPONENT, risk=Risk.OPERATIONAL,
+    _m(name="latency_component", needs_instrumentation="return {'timings': {'retrieve': 0.1, ...}} from call_app", level=Level.COMPONENT, risk=Risk.OPERATIONAL,
        method=Method.PROGRAMMATIC, reference=Reference.FREE,
        mechanism=Mechanism.TELEMETRY, archetypes=_ANY,
        higher_is_better=False, noise_hint=0.15,
        catches="which stage the time is going to",
        triangulates=("latency_p95",)),
 
-    _m(name="time_to_first_token", level=Level.APPLICATION, risk=Risk.OPERATIONAL,
+    _m(name="time_to_first_token", needs_instrumentation="time the first streamed chunk and return {'ttft': seconds}", level=Level.APPLICATION, risk=Risk.OPERATIONAL,
        method=Method.PROGRAMMATIC, reference=Reference.FREE,
        mechanism=Mechanism.TELEMETRY, archetypes=_ANY,
        higher_is_better=False, noise_hint=0.15,
        catches="dead air before a streamed answer starts"),
 
-    _m(name="cost_per_query", level=Level.APPLICATION, risk=Risk.OPERATIONAL,
+    _m(name="cost_per_query", needs_instrumentation="return {'cost': usd} from call_app", level=Level.APPLICATION, risk=Risk.OPERATIONAL,
        method=Method.PROGRAMMATIC, reference=Reference.FREE,
        mechanism=Mechanism.TELEMETRY, archetypes=_ANY,
        higher_is_better=False, noise_hint=0.05,

@@ -33,6 +33,7 @@ from livingeval.plan.taxonomy import (
     Level,
     Method,
     Metric,
+    Reference,
     Risk,
     for_target,
 )
@@ -91,7 +92,17 @@ class Pipeline:
     @property
     def blocked(self) -> list[Metric]:
         """Metrics waiting on somebody to write the answers."""
-        return [m for m in self.metrics if not m.automatable]
+        return [m for m in self.metrics if m.reference is not Reference.FREE]
+
+    @property
+    def needs_wiring(self) -> list[Metric]:
+        """Metrics waiting on a key `call_app` does not return yet.
+
+        Separate from `blocked` because the remedy is somewhere else entirely:
+        one wants a golden answer written, the other wants a line added to
+        harness.py.
+        """
+        return [m for m in self.metrics if m.needs_instrumentation]
 
     @property
     def needs_judge(self) -> bool:
@@ -118,12 +129,18 @@ class Plan:
     def blocked_count(self) -> int:
         return sum(len(p.blocked) for p in self.pipelines)
 
+    @property
+    def wiring_count(self) -> int:
+        return sum(len(p.needs_wiring) for p in self.pipelines)
+
     def summary(self) -> str:
         sites = len(self.sites)
+        tail = f"{self.blocked_count} awaiting golden answers"
+        if self.wiring_count:
+            tail += f", {self.wiring_count} awaiting instrumentation"
         return (f"{sites} call site{'s' if sites != 1 else ''} -> "
                 f"{len(self.pipelines)} pipelines, {self.metric_count} metrics "
-                f"({self.runnable_count} runnable now, "
-                f"{self.blocked_count} awaiting golden answers)")
+                f"({self.runnable_count} runnable now, {tail})")
 
 
 def _dedupe(metrics: list[Metric]) -> list[Metric]:

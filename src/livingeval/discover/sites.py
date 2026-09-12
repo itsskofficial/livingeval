@@ -118,6 +118,11 @@ class Evidence:
     literal_enums: list[str] = field(default_factory=list)
     # schema name -> (field count, whether every field is a label set)
     schema_shapes: dict[str, tuple[int, bool]] = field(default_factory=dict)
+    # schema name -> [{"name", "required", "labels"}]. The counts above decide
+    # the archetype; these decide whether the structured-output metrics can run
+    # at all, because "required_fields" cannot be checked without the names and
+    # the visitor is already standing in front of them.
+    schema_fields: dict[str, list[dict]] = field(default_factory=dict)
     prompts: list[str] = field(default_factory=list)
     has_loop: bool = False
     streams: bool = False
@@ -131,6 +136,7 @@ class Evidence:
         self.schemas += other.schemas
         self.literal_enums += other.literal_enums
         self.schema_shapes.update(other.schema_shapes)
+        self.schema_fields.update(other.schema_fields)
         self.prompts += other.prompts
         self.has_loop = self.has_loop or other.has_loop
         self.streams = self.streams or other.streams
@@ -279,6 +285,7 @@ class _ModuleVisitor(ast.NodeVisitor):
         self.chat_models: set[str] = set()
         self.enums: list[str] = []
         self.schema_shapes: dict[str, tuple[int, bool]] = {}
+        self.schema_fields: dict[str, list[dict]] = {}
         self.sites: list[CallSite] = []
 
     def collect_bindings(self, tree: ast.AST) -> None:
@@ -331,6 +338,41 @@ class _ModuleVisitor(ast.NodeVisitor):
                     self.enums.append(node.name)
                 if ("BaseModel",) in bases or ("TypedDict",) in bases:
                     self.schema_shapes[node.name] = self._shape(node)
+                    self.schema_fields[node.name] = self._fields(node)
+
+    @staticmethod
+    def _fields(node: ast.ClassDef) -> list[dict]:
+        """Each annotated field: its name, whether it is required, its labels.
+
+        Required means not `Optional[...]`, not `X | None`, and with no default
+        -- which is what a schema means by required and what the metric checks.
+        Labels are the members of a `Literal[...]`, which is where enum
+        membership comes from.
+        """
+        out: list[dict] = []
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                continue
+            annotation = item.annotation
+            optional = False
+            if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+                optional = any(isinstance(side, ast.Constant) and side.value is None
+                               for side in (annotation.left, annotation.right))
+            if (isinstance(annotation, ast.Subscript)
+                    and _dotted(annotation.value)[-1:] == ("Optional",)):
+                optional = True
+            labels: list[str] = []
+            if (isinstance(annotation, ast.Subscript)
+                    and _dotted(annotation.value)[-1:] == ("Literal",)):
+                members = (annotation.slice.elts
+                           if isinstance(annotation.slice, ast.Tuple)
+                           else [annotation.slice])
+                labels = [m.value for m in members
+                          if isinstance(m, ast.Constant) and isinstance(m.value, str)]
+            out.append({"name": item.target.id,
+                        "required": not optional and item.value is None,
+                        "labels": labels})
+        return out
 
     @staticmethod
     def _shape(node: ast.ClassDef) -> tuple[int, bool]:
@@ -399,6 +441,8 @@ class _ModuleVisitor(ast.NodeVisitor):
                 continue
             visitor.evidence.literal_enums = list(self.enums)
             visitor.evidence.schema_shapes = dict(self.schema_shapes)
+            visitor.evidence.schema_fields = {k: list(v)
+                                              for k, v in self.schema_fields.items()}
             for line, provider, model in visitor.calls:
                 if line in seen:
                     continue
@@ -414,6 +458,8 @@ class _ModuleVisitor(ast.NodeVisitor):
                 top.visit(child)
         top.evidence.literal_enums = list(self.enums)
         top.evidence.schema_shapes = dict(self.schema_shapes)
+        top.evidence.schema_fields = {k: list(v)
+                                      for k, v in self.schema_fields.items()}
         for line, provider, model in top.calls:
             if line not in seen:
                 seen.add(line)
