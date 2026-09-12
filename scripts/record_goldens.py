@@ -27,6 +27,12 @@ sys.path.insert(0, str(ROOT / "src"))
 import livingeval as le  # noqa: E402
 from livingeval import synthetic as syn  # noqa: E402
 
+
+def _sklearn_version() -> str:
+    import sklearn
+
+    return ".".join(sklearn.__version__.split(".")[:2])
+
 OUT = ROOT / "tests" / "fixtures" / "golden.json"
 
 
@@ -49,6 +55,14 @@ def build() -> dict:
             "judge": "oracle(noise=0.1, seed=42)",
             "suite": "sample(80, seed=42)",
             "note": "regenerate with scripts/record_goldens.py; never automatically",
+            # Half of these numbers come out of scikit-learn -- cross-validation
+            # folds, decision stumps, k-means -- and a release can move them
+            # with the seed unchanged. StratifiedGroupKFold did exactly that
+            # between 1.7 and 1.9: same random_state, different folds, and every
+            # cross-validated kappa shifted. Recording the version turns that
+            # from "livingeval broke" into "the library moved", which is a
+            # different sentence and the true one.
+            "scikit_learn": _sklearn_version(),
         },
         "trace_content_hash": traces[0].content_hash(),
         "suite_content_hash": suite.content_hash(),

@@ -4,7 +4,7 @@
   <h3 align="center">livingeval</h3>
 
   <p align="center">
-    Eval suites that tell you when they've gone blind — coverage, detection power and judge depth for LLM agents
+    Point it at your repository and it writes the evals — then tells you when they have gone blind
     <br/>
     <br/>
     <a href="./docs/index.md">Read The Docs</a>
@@ -49,11 +49,86 @@
 
 ## About The Project
 
-Every team evaluating an LLM agent has converged on the same recipe: curate a golden set once, score it with an LLM judge, fail CI below a threshold. The suite reports a number. It does not report whether that number still means anything.
+**Point it at your repository. It writes the evals.**
 
-**livingeval** adds the three measurements that decide. **Coverage** is the share of today's traffic that sits near something the suite actually contains, using a radius calibrated from the suite's own spread rather than a constant somebody picked. **Detection power** is the probability the gate turns red under a regression you *name*, established by simulation and always reported alongside its false-alarm rate. **Judge depth** is the cheapest scorer that reproduces your LLM judge — if a keyword rule matches it, the judge was decoration, and the tool says so.
+```sh
+pip install livingeval
+livingeval init
+```
 
-The gate is three-valued rather than two. `PASS (0)`, `FAIL (1)`, and `BLIND (2)`, because "no regression detected, and this suite could not have detected one" is a different claim from "no regression" and CI should be able to treat it differently.
+It reads your code, finds every LLM call, works out what each one *is* — a RAG
+pipeline, a structured extractor, a classifier, an agent — and writes the eval
+suite that shape of thing needs. It explains every choice as it goes, asks you
+about the handful of things it genuinely cannot know, and never invents an
+answer it should have asked for.
+
+On a typical RAG application, one call site produces:
+
+```
+1 call site -> 7 pipelines, 22 metrics (18 runnable now, 4 awaiting golden answers)
+
+  eval_retriever_quality        contextual_recall, contextual_precision
+  eval_generator_quality        faithfulness, answer_relevancy
+  eval_workflow_quality         faithfulness, answer_relevancy, contextual_relevance
+  eval_application_quality      correctness, completeness, instruction_following, style
+  eval_application_safety       toxicity, pii_leakage, prompt_leakage, scope_adherence,
+                                injection_resistance, over_refusal
+  eval_application_operational  latency_p95, time_to_first_token, cost_per_query, error_rate
+```
+
+**18 of those run before you write a single line.** Everything reference-free —
+grounding, relevance, safety, latency, cost — needs only inputs and a rubric,
+and both are derivable. The other four need a human, and are written as stubs
+with the inputs filled in and the answer column deliberately empty.
+
+That last point is the one that matters. The easy way to generate a "complete"
+suite is to run your code and record what it says. That builds a suite which
+passes because the cases were harvested from what the model already does — a
+change detector wearing a correctness test's clothes. livingeval will not do it,
+and says so in the file.
+
+### Why these evals and not others
+
+Every generated file explains itself, and `livingeval scan --explain` shows the
+reasoning before anything is written:
+
+```
+myapp/rag.py:14  answer()
+    openai -> rag (50% confident)
+      - retrieval before generation (store.similarity_search)
+
+eval_workflow_quality  [workflow/quality]
+     faithfulness             grounding failures that only appear on real retrieved context
+     contextual_relevance     noise inside chunks that are themselves relevant -- high
+                              precision beside low relevance means the chunks are too big
+```
+
+The decision procedure is written down in
+[docs/decision-framework.md](docs/decision-framework.md): where an eval goes
+(component, workflow, application), which risk it covers (quality, safety,
+operational), which metric measures it, how it is executed (programmatic,
+model-graded, human), and whether it needs a reference answer. The catalogue is
+[data, not code](src/livingeval/plan/taxonomy.py), so you can read the whole
+thing and disagree with it.
+
+### And then the part nobody else does
+
+A suite tells you your scores changed. It cannot tell you whether the change was
+real, whether it could have caught the regression at all, or whether it still
+describes your traffic. livingeval measures all three.
+
+**Coverage** is the share of today's traffic sitting near something the suite
+contains, at a radius calibrated from the suite's own spread rather than a
+constant somebody picked. **Detection power** is the probability the gate turns
+red under a regression you *name*, established by simulation and always reported
+beside its false-alarm rate. **Judge depth** is the cheapest scorer that
+reproduces your LLM judge — if a keyword rule matches it, the judge was
+decoration, and the tool says so.
+
+So the gate is three-valued rather than two. `PASS (0)`, `FAIL (1)`, and
+`BLIND (2)`, because "no regression detected, and this suite could not have
+detected one" is a different claim from "no regression", and CI should be able
+to treat them differently.
 
 ```
 -> BLIND  (exit 2)
@@ -62,7 +137,10 @@ The gate is three-valued rather than two. `PASS (0)`, `FAIL (1)`, and `BLIND (2)
    simulated detection power 1.2% is below 80% for the regression tested
 ```
 
-Measuring the gap is only half of it. The platform mines real traces from the clusters your suite cannot see, queues them for a human to confirm, and merges the confirmed ones back into the suite — which is what makes it *living* rather than a linter.
+Measuring the gap is only half of it. The platform mines real traces from the
+clusters your suite cannot see, queues them for a human to confirm, and merges
+the confirmed ones back into the suite — which is what makes it *living* rather
+than a linter.
 
 ## Built With
 
@@ -158,6 +236,170 @@ Follow these steps to set up the project locally.
 
 ## Usage
 
+### Write a suite for your codebase
+
+```sh
+livingeval scan --explain        # what is there, and what it would write
+livingeval init                  # interactive: judge, scope, then generate
+livingeval init --yes            # take every default, report what was assumed
+```
+
+`init` asks about four things and decides the rest: which model grades the
+judgement-based metrics, its API key (written to `.env`, never committed),
+what the assistant is *for* — scope adherence and over-refusal are unmeasurable
+without it — and any call site it could not classify confidently.
+
+It writes `livingeval_evals/`: one file per pipeline, the datasets, a metric
+registry with direction and noise tolerance, a suite runner, and `WHY.md`
+explaining every choice.
+
+```sh
+python -m livingeval_evals.run_suite     # run it, write baseline.json
+livingeval baseline --runs 10            # measure real noise thresholds
+# ... change something ...
+python -m livingeval_evals.run_suite     # writes candidate.json
+livingeval gate                          # PASS (0) / FAIL (1) / BLIND (2)
+```
+
+Every metric the plan named either produces a number or says why it did not.
+That sounds like bookkeeping and is the difference between a report and a
+decoration: a metric with no data does not fail loudly, it disappears — and a
+green suite that quietly stopped measuring five of its twenty-two metrics reads
+exactly like a healthy one.
+
+```
+wrote baseline.json  (16 metrics, 248s)
+
+7 planned metric(s) produced no number. `livingeval gate` reports these BLIND
+rather than passing them:
+  ~ application.correctness: 5 cases in goldens/application_correctness.json are
+    still awaiting the reference answers only you can write
+  ~ application.cost_per_query: call_app did not report a cost; return
+    {'cost': usd} from it to measure this
+  ~ component.latency_component: needs per-stage timings; return
+    {'timings': {'retrieve': 0.1, ...}} from call_app to measure it
+```
+
+### Keep it in step with the code
+
+```sh
+livingeval sync --dry-run    # what changed, and what would be written
+livingeval sync              # update the suite to match the code
+```
+
+A suite generated once describes the application as it was that day, which is
+the exact decay this library exists to measure — shipping it in the tool itself
+would be absurd. `sync` rescans, diffs against a manifest, and reports before it
+writes:
+
+```
+1 new call sites, 0 changed, 0 gone -> 5 metrics to add, 0 now unused
+
+  + svc/agent.py:8 act()  (agent)
+
+  + component.tool_selection
+  + workflow.task_completion
+  ...
+```
+
+The diff is over *what decides the metrics*, not the source, so a call site that
+slid twelve lines down is unchanged and one that gained a retriever is not.
+
+**It will not destroy your work.** Golden answers are merged, never
+regenerated — new cases appended, existing answers untouched. Generated files
+you have edited are reported and skipped. Call sites that vanished are reported
+stale, never deleted, because static analysis cannot tell "deleted" from "moved
+somewhere I can't see".
+
+```
+  wrote 14 files
+  preserved 3 human-written answers across 1 datasets
+  skipped 1 edited files
+```
+
+### Watch it drift away from your traffic
+
+```sh
+livingeval drift --traces 'traces/*.jsonl'        # or a Langfuse/OTel export
+```
+
+The suite is written from source code, and source code says nothing about what
+users actually send. Every metric can be green while most of your traffic sits
+somewhere none of the cases go:
+
+```
+-> BLIND  coverage 8.3% of 120 traces
+   below 70%: most of your traffic is unrepresented, so a green suite is not
+   evidence the application is working
+
+  traffic this suite cannot see:
+
+     24.2% of traffic,  0.0% covered  billing charged, this month, twice
+     24.2% of traffic,  0.0% covered  refund for, refund, the annual plan
+     15.8% of traffic,  0.0% covered  subscription, transfer, to colleague
+```
+
+A number tells you to act; the cluster table tells you what to write. Those
+clusters feed the review queue in `livingeval serve`, and `livingeval promote`
+writes the cases a human confirms into `livingeval_evals/goldens/` — where each
+real question takes a generated placeholder's slot rather than sitting beside
+it. That is the loop that makes it *living*.
+
+What promotion will not do is invent a reference answer. A reviewer marking an
+output acceptable has judged what the system said, not written what it should
+have said, and those come apart on exactly the cases worth having — a plausible,
+agreeable, subtly wrong answer is the one that survives review. So a confirmed
+case arrives with a real input and, unless the reviewer typed a correction, the
+answer still owed.
+
+`gate` compares every metric, direction-aware, and where the suite recorded
+per-case outcomes it runs exact McNemar on them rather than comparing against a
+threshold. Twenty-two metrics is twenty-two tests, so it corrects across the
+family with Benjamini-Hochberg — uncorrected, a suite that size manufactures a
+false alarm most runs, which is how teams learn to ignore their own gate.
+
+```
+-> FAIL  (exit 1)
+   workflow.faithfulness fell 0.3500 (p=0.000, q=0.011): grounding failures
+   that only appear on real retrieved context
+
+  - workflow.faithfulness       0.900 ->  0.550  REGRESSED     p=0.000 q=0.011
+    application.toxicity        0.150 ->  0.150  within noise  p=1.000 q=1.000
+```
+
+Until `livingeval baseline` has measured the real spread, metrics without
+per-case data are compared against shipped estimates, and the gate returns
+**BLIND rather than PASS** — comparing against a guess is not evidence of
+stability:
+
+```
+-> BLIND  (exit 2)
+   4 of 22 metrics were compared against estimated noise thresholds with no
+   per-case data: run `livingeval baseline --runs 10` to measure them
+```
+
+And it will tell you when a test could not have fired at all. Loosening the
+grounding instruction in a real support assistant's system prompt dropped scope
+adherence from 0.883 to 0.550 across a six-case set. The p-value was 0.5:
+
+```
+- application.scope_adherence   0.883 ->  0.550  within noise  p=0.500 q=1.000
+                                                 (too few cases to reach significance)
+
+   13 of 16 metrics have too few cases for the paired test to reach
+   significance at any effect size — application.scope_adherence moved 0.333
+   the wrong way and still could not be called. Add cases to those golden sets,
+   or read their movement against the measured noise threshold instead
+```
+
+Nothing was wrong with the p-value. Exact McNemar is a two-sided sign test over
+the cases that *changed*, so with four disagreements the smallest p available is
+0.125 — no effect of any size makes that test fire. Every metric carries the
+floor of its own test, and where the floor sits above alpha the gate says so
+rather than printing a phrase that reads as reassurance. This is what "detection
+power" means when it is computed exactly instead of simulated, and it is why the
+generated suite tells you to add cases.
+
 ### See it work on bundled data
 
 ```sh
@@ -204,7 +446,7 @@ print(le.gate.evaluate(run, baseline, coverage=cov.coverage, power=pw.power.poin
 
 ```sh
 livingeval serve                       # dashboard + review queue on :8000
-livingeval promote --suite my-suite    # confirmed cases join the suite
+livingeval promote --suite my-suite    # confirmed cases join the golden sets
 ```
 
 Nothing enters the suite until a person clicks. A suite labelled entirely by the judge it is used to check is circular.
@@ -289,7 +531,7 @@ Every choice, and the alternative that was rejected, is recorded in [DECISIONS.m
 
 * Calibrated judge ensembles with abstention
 
-See [ROADMAP.md](./ROADMAP.md) for what v0.1 deliberately does not do, and why.
+See [ROADMAP.md](./ROADMAP.md) for what this deliberately does not do, and why.
 
 ## Contributing
 

@@ -11,6 +11,7 @@ own branch rather than folding it into green.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -59,6 +60,43 @@ def _load_traces(spec: str):
 # ---------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------
+
+
+def cmd_init(args) -> int:
+    """Scan, plan, explain, and write a suite. The front door."""
+    from livingeval.wizard import run_init
+    return run_init(Path(args.path), assume_yes=args.yes, dry_run=args.dry_run,
+                    include_tests=args.include_tests)
+
+
+def cmd_scan(args) -> int:
+    """Report what is there without writing anything."""
+    from livingeval.discover import scan
+    from livingeval.plan import build_plan
+
+    sites = scan(Path(args.path), include_tests=args.include_tests)
+    if not sites:
+        print("no LLM call sites found")
+        return 1
+    plan = build_plan(sites)
+    print(plan.summary())
+    print()
+    for site in sites:
+        print(f"{site.path}:{site.line}  {site.function}()")
+        print(f"    {site.provider} -> {site.archetype} ({site.confidence:.0%} confident)")
+        if args.explain:
+            for reason in site.rationale:
+                print(f"      - {reason}")
+    if args.explain:
+        print()
+        for pipeline in plan.pipelines:
+            print(f"{pipeline.slug}  [{pipeline.level.value}/{pipeline.risk.value}]")
+            for metric in pipeline.metrics:
+                flag = " " if metric.automatable else "*"
+                print(f"   {flag} {metric.name:<24} {metric.catches}")
+        print()
+        print("   * needs a reference answer you write")
+    return 0
 
 
 def cmd_coverage(args) -> int:
@@ -150,7 +188,56 @@ def cmd_power(args) -> int:
     return 0
 
 
+def _generated_package(path: str) -> Path | None:
+    """The generated suite under `path`, or None if `init` has not run there."""
+    package = Path(path) / "livingeval_evals"
+    return package if (package / "run_suite.py").exists() else None
+
+
+def cmd_baseline(args) -> int:
+    """Measure real noise thresholds by running the suite unchanged."""
+    from livingeval.baseline import MIN_RUNS, measure, update_registry
+
+    package = _generated_package(args.path)
+    if package is None:
+        print(f"no generated suite under {args.path}. Run `livingeval init` first.")
+        return 1
+    if args.runs < MIN_RUNS:
+        print(f"--runs must be at least {MIN_RUNS}; below that the spread is less "
+              f"reliable than the shipped estimate.")
+        return 1
+
+    print(f"running the suite {args.runs} times with nothing changed")
+    print("this is what costs money: N runs is N times the API bill of one")
+    print()
+    measurements, last = measure(package, args.runs)
+    if not measurements:
+        print("no metric appeared in every run; nothing could be measured")
+        return 1
+
+    print()
+    for measurement in measurements.values():
+        print(measurement.line)
+
+    updated = update_registry(package / "metric_registry.py", measurements)
+    baseline_path = package / "baseline.json"
+    baseline_path.write_text(json.dumps(last, indent=2), encoding="utf-8")
+
+    print()
+    print(f"  {updated} thresholds measured and written to metric_registry.py")
+    print("  baseline.json written from the last run")
+    print()
+    print("  `livingeval gate` will now compare against measured noise "
+          "instead of returning BLIND.")
+    return 0
+
+
 def cmd_gate(args) -> int:
+    # With no --suite, gate the generated suite: baseline.json vs candidate.json.
+    # One verdict command for both flows, rather than making the user learn
+    # which subcommand matches which artifact.
+    if not args.suite:
+        return _gate_generated(args)
     from livingeval import gate as G
     from livingeval.suite import EvalSuite
 
@@ -192,6 +279,128 @@ def cmd_gate(args) -> int:
         report.save([result, current], args.out)
         print(f"\nwrote {args.out}")
     return result.exit_code
+
+
+def cmd_sync(args) -> int:
+    """Rescan, diff against the manifest, and update what has moved."""
+    from livingeval.discover import scan
+    from livingeval.generate import build_goldens, emit
+    from livingeval.manifest import Manifest
+    from livingeval.plan import build_plan
+    from livingeval.sync import diff, protected_files
+
+    root = Path(args.path)
+    package = _generated_package(args.path)
+    if package is None:
+        print("no generated suite here. Run `livingeval init` first.")
+        return 1
+    manifest = Manifest.load(package)
+    if manifest is None:
+        print("no manifest: this suite predates sync, or it was deleted.")
+        print("Re-run `livingeval init` to establish one. Golden answers are merged, "
+              "never overwritten.")
+        return 1
+
+    sites = scan(root, include_tests=args.include_tests)
+    plan = build_plan(sites)
+    change = diff(manifest, sites, plan)
+    edited = protected_files(manifest, package)
+    change.edited = edited
+
+    print(change.summary())
+    print()
+    for entry in change.sites:
+        if entry.kind != "unchanged" or args.verbose:
+            print(entry.line())
+    if change.metrics:
+        print()
+        for entry in change.metrics:
+            print(entry.line())
+    if edited:
+        print()
+        print(f"  {len(edited)} generated files have been edited since livingeval "
+              f"wrote them:")
+        for name in edited:
+            print(f"    {name}")
+        if args.force:
+            print("  --force: overwriting them. Measured noise thresholds and "
+                  "golden answers are carried across regardless.")
+        else:
+            print("  They will be left alone. Pass --force to overwrite them.")
+
+    if not change.has_changes and not args.force:
+        print()
+        print("  nothing to write")
+        return 0
+    if args.dry_run:
+        print()
+        print("  --dry-run: nothing written")
+        return 0
+
+    protect = set() if args.force else set(edited)
+    metrics = [m for p in plan.pipelines for m in p.metrics]
+    goldens = build_goldens(metrics, scope=manifest.scope or "this product")
+    emission = emit(plan, goldens, root, judge=manifest.judge or "openai:gpt-4o-mini",
+                    scope=manifest.scope, protect=protect)
+
+    print()
+    print(f"  wrote {len(emission.files)} files")
+    if emission.preserved:
+        total = sum(emission.preserved.values())
+        print(f"  preserved {total} human-written answers across "
+              f"{len(emission.preserved)} datasets")
+    if emission.skipped:
+        print(f"  skipped {len(emission.skipped)} edited files")
+    return 0
+
+
+def cmd_drift(args) -> int:
+    """Is the generated suite still describing production traffic?"""
+    from livingeval.drift import measure_drift
+
+    package = _generated_package(args.path)
+    if package is None:
+        print("no generated suite here. Run `livingeval init` first.")
+        return 1
+    traces = _load_traces(args.traces)
+    report = measure_drift(package, traces, top=args.top,
+                           include_probes=args.include_probes, seed=args.seed)
+    print(report.render())
+    if args.out:
+        import dataclasses
+        Path(args.out).write_text(
+            json.dumps(dataclasses.asdict(report), indent=2), encoding="utf-8")
+    return 2 if report.verdict == "BLIND" else 0
+
+
+def _gate_generated(args) -> int:
+    from livingeval.gate.regress import compare, load_run
+
+    package = _generated_package(args.path)
+    if package is None:
+        print("pass --suite for a trace-based gate, or run `livingeval init` "
+              "to generate one from your codebase.")
+        return 1
+
+    baseline_path = package / "baseline.json"
+    candidate_path = package / "candidate.json"
+    for path in (baseline_path, candidate_path):
+        if not path.exists():
+            print(f"{path.name} is missing. Run the suite twice:")
+            print("  python -m livingeval_evals.run_suite")
+            return 1
+
+    namespace: dict = {}
+    exec(compile((package / "metric_registry.py").read_text(encoding="utf-8"),
+                 "metric_registry.py", "exec"), namespace)
+
+    report = compare(load_run(baseline_path), load_run(candidate_path),
+                     namespace["REGISTRY"], alpha=args.alpha)
+    print(report.render())
+    if args.out:
+        Path(args.out).write_text(json.dumps(report.as_dict(), indent=2),
+                                  encoding="utf-8")
+    return report.exit_code
 
 
 def cmd_audit(args) -> int:
@@ -273,8 +482,22 @@ def cmd_promote(args) -> int:
     from livingeval import feedback
     from livingeval.store import open_store
 
-    result = feedback.promote(open_store(args.db), args.suite, max_cases=args.max_cases)
+    store = open_store(args.db)
+    result = feedback.promote(store, args.suite, max_cases=args.max_cases)
     print(result.summary())
+
+    # The store suite is not the suite most people run. `init` writes golden
+    # sets under livingeval_evals/, and a confirmation that stops at the store
+    # leaves those exactly as generated -- which breaks the one loop that makes
+    # any of this living. So the confirmed cases go there too, when it exists.
+    package = Path(args.path) / "livingeval_evals"
+    if package.exists():
+        from livingeval.generate.adopt import adopt_into_goldens
+
+        adopted = adopt_into_goldens(package, store.confirmed_cases(args.suite),
+                                     default_target=args.into)
+        print()
+        print(adopted.summary())
     return 0
 
 
@@ -596,7 +819,7 @@ def _unprotected_tables(store) -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="livingeval",
-        description="Eval suites that tell you when they've gone blind.",
+        description="Point it at your codebase and it writes the evals.",
     )
     p.add_argument("--version", action="version", version=f"livingeval {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
@@ -604,7 +827,8 @@ def build_parser() -> argparse.ArgumentParser:
     def common(sp, traces=True, suite=False, judge=False):
         if traces:
             sp.add_argument("--traces", required=True,
-                            help="a .jsonl glob, an OTel/Langfuse .json, or synthetic:drifting,n=1200")
+                            help="a .jsonl glob, an OTel/Langfuse .json, "
+                                 "langfuse:limit=500, or synthetic:drifting,n=1200")
         if suite:
             sp.add_argument("--suite", required=True, help="path to a suite JSON")
         if judge:
@@ -612,6 +836,21 @@ def build_parser() -> argparse.ArgumentParser:
                             help="rule:mod:fn | oracle[:noise] | openai:model | anthropic:model")
         sp.add_argument("--seed", type=int, default=0)
         sp.add_argument("--out", default=None, help="write a result record here")
+
+    sp = sub.add_parser("init", help="scan a codebase and write an eval suite")
+    sp.add_argument("--path", default=".", help="repository root (default: .)")
+    sp.add_argument("--yes", action="store_true",
+                    help="take every default; report what was assumed")
+    sp.add_argument("--dry-run", action="store_true", help="plan and explain, write nothing")
+    sp.add_argument("--include-tests", action="store_true",
+                    help="scan test files too (usually mocks, so off by default)")
+    sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser("scan", help="list the LLM call sites and what they need")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--explain", action="store_true", help="show the reasoning")
+    sp.add_argument("--include-tests", action="store_true")
+    sp.set_defaults(func=cmd_scan)
 
     sp = sub.add_parser("coverage", help="how much of your traffic does this suite represent")
     common(sp, suite=True)
@@ -641,8 +880,43 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--n-sim", type=int, default=300)
     sp.set_defaults(func=cmd_power)
 
+    sp = sub.add_parser("sync",
+                        help="rescan the codebase and update the suite to match")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    sp.add_argument("--force", action="store_true",
+                    help="overwrite generated files a human has edited")
+    sp.add_argument("--verbose", action="store_true", help="list unchanged sites too")
+    sp.add_argument("--include-tests", action="store_true")
+    sp.set_defaults(func=cmd_sync)
+
+    sp = sub.add_parser("drift",
+                        help="does the generated suite still cover your traffic")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--traces", required=True,
+                    help="a .jsonl glob, a Langfuse/OTel export, langfuse:limit=500 "
+                         "to pull from a live project, or a store DSN")
+    sp.add_argument("--top", type=int, default=5)
+    sp.add_argument("--include-probes", action="store_true",
+                    help="count this tool's own generated cases as coverage "
+                         "(overstates it)")
+    sp.add_argument("--seed", type=int, default=0)
+    sp.add_argument("--out", default=None)
+    sp.set_defaults(func=cmd_drift)
+
+    sp = sub.add_parser("baseline",
+                        help="measure real noise thresholds for a generated suite")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--runs", type=int, default=6,
+                    help="runs with nothing changed (minimum 4, more is better)")
+    sp.set_defaults(func=cmd_baseline)
+
     sp = sub.add_parser("gate", help="PASS (0), FAIL (1) or BLIND (2)")
-    sp.add_argument("--suite", required=True)
+    sp.add_argument("--suite", default=None,
+                    help="a suite JSON; omit to gate the generated suite")
+    sp.add_argument("--path", default=".", help="repository root, for the generated suite")
+    sp.add_argument("--alpha", type=float, default=0.05,
+                    help="false-discovery rate across the family of metrics")
     sp.add_argument("--judge", default="oracle")
     sp.add_argument("--baseline", default=None, help="a record written by a previous gate run")
     sp.add_argument("--traces", default=None, help="production traces, to compute coverage")
@@ -704,6 +978,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--db", default="sqlite:///livingeval.db")
     sp.add_argument("--suite", default="default")
     sp.add_argument("--max-cases", type=int, default=None, help="retire oldest beyond this")
+    sp.add_argument("--path", default=".",
+                    help="repository root, for a generated livingeval_evals/ suite")
+    sp.add_argument("--into", default="application.correctness",
+                    help="golden set for cases that name no metric of their own")
     sp.set_defaults(func=cmd_promote)
 
     sp = sub.add_parser("export", help="write human-confirmed labels as fine-tuning data")

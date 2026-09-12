@@ -67,7 +67,7 @@ def test_a_short_api_key_is_refused_with_the_command_to_generate_one():
 
 @pytest.mark.parametrize("url", ["mysql://x/y", "redis://x", "./local.db"])
 def test_a_nonsense_database_url_is_refused(url):
-    with pytest.raises(ValueError, match="not a\n?\\s*store URL|is not a"):
+    with pytest.raises(ValueError, match=r"not a\n?\s*store URL|is not a"):
         Settings.load(database_url=url)
 
 

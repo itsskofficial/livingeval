@@ -112,7 +112,16 @@ def open_store(url: str = "sqlite:///livingeval.db") -> Store:
     if url.startswith("sqlite"):
         from livingeval.store.sqlite import SQLiteStore
 
-        path = url.split("://", 1)[1].lstrip("/") or ":memory:"
+        # One leading slash, not all of them. The convention every SQLAlchemy
+        # user already has in their fingers is three slashes for a relative
+        # path and four for an absolute one, so `sqlite:////var/lib/live.db`
+        # must stay `/var/lib/live.db`. Stripping the lot made it relative to
+        # the working directory -- on Linux and macOS, every absolute DSN
+        # silently opened an empty database somewhere else. Windows was immune,
+        # because there the path after the slashes starts `C:` and stays
+        # absolute, which is how this survived.
+        rest = url.split("://", 1)[1]
+        path = (rest[1:] if rest.startswith("/") else rest) or ":memory:"
         return SQLiteStore(path)
     if url.startswith(("postgres://", "postgresql://")):
         from livingeval.store.postgres import PostgresStore

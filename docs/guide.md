@@ -345,8 +345,24 @@ ingester, a scorer and a dashboard become three processes.
 
 ```bash
 livingeval ingest --traces 'traces/*.jsonl' --db sqlite:///live.db --suite-from-first-window
-livingeval ingest --follow --interval 30       # poll a live Langfuse project
+livingeval ingest --traces 'langfuse:limit=500'      # one pull from a live project
+livingeval ingest --follow --interval 30             # or poll it continuously
 ```
+
+`langfuse:` reads `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` from the environment,
+and `LANGFUSE_HOST` or `LANGFUSE_BASE_URL` if you are not on `cloud.langfuse.com` —
+the EU and US regions are different hosts, and the wrong one answers `401`. Options
+after the colon: `limit=`, `pages=`, `expand=1`, `host=`, `out=`.
+
+`expand=1` re-fetches each trace individually. The list endpoint returns observations
+and scores as bare id strings, so without it you get the question and the final answer
+but no tool calls — enough for coverage and clustering, not enough for a judge grading
+whether the agent's claims match what its tools returned. It costs one request per
+trace.
+
+Anywhere a trace source is accepted, `langfuse:` works — so `livingeval drift --traces
+langfuse:limit=1000` measures your generated suite against last week's real traffic
+without an export file in between.
 
 `put_traces` is idempotent on `trace_id`, so a re-poll over an overlapping window is
 harmless and the poller needs no cursor bookkeeping.
@@ -465,7 +481,7 @@ the judge is a closed loop that reports success no matter how wrong the judge is
 ```python
 import livingeval as le
 
-traces = le.ingest.jsonl("traces/2026-08/*.jsonl")   # or .otel(...) / .langfuse(...)
+traces = le.ingest.jsonl("traces/2026-08/*.jsonl")   # or .otel(...) / .read_langfuse_json(...)
 suite  = le.EvalSuite.load("evals/support.json")
 judge  = le.judge.openai("gpt-4o-mini", prompt=MY_RUBRIC)
 

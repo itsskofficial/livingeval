@@ -2,6 +2,7 @@
 
     sources.load_traces("traces/2026-08/*.jsonl")
     sources.load_traces("otel-export.json")
+    sources.load_traces("langfuse:limit=500")
     sources.load_traces("synthetic:drifting,n=1200,seed=0")
     sources.load_traces("sqlite:///livingeval.db")
 
@@ -25,8 +26,19 @@ def describe_spec() -> str:
     """Help text, so the CLI and the docs cannot drift apart."""
     return (
         "a .jsonl file or glob | an OTel/Langfuse .json export | "
+        "langfuse:[limit=,pages=,expand=1] | "
         "synthetic:<generator>[,n=,seed=] | sqlite:///path.db or postgresql://..."
     )
+
+
+def _options(text: str) -> dict:
+    """`limit=500,expand=1` as a dict. Empty values are dropped."""
+    out: dict = {}
+    for item in text.split(","):
+        key, _, value = item.partition("=")
+        if key.strip() and value.strip():
+            out[key.strip()] = value.strip()
+    return out
 
 
 def load_traces(spec: str, limit: int | None = None) -> TraceSet:
@@ -38,6 +50,22 @@ def load_traces(spec: str, limit: int | None = None) -> TraceSet:
         from livingeval.store import open_store
 
         return open_store(spec).get_traces(limit=limit)
+
+    # -- a live Langfuse project ---------------------------------------------
+    #
+    # A one-shot pull, as distinct from `ingest --follow`, which polls forever.
+    # "Connect it to Langfuse" almost always means "read my last few hundred
+    # traces now" -- for a coverage number or a drift report -- and having only
+    # the daemon meant piping an export file around to do the obvious thing.
+    if spec == "langfuse" or spec.startswith("langfuse:"):
+        from livingeval.trace.ingest.langfuse import fetch
+
+        options = _options(spec.partition(":")[2])
+        return fetch(limit=int(options.get("limit", limit or 500)),
+                     pages=int(options.get("pages", 1)),
+                     expand=bool(int(options.get("expand", 0))),
+                     host=options.get("host"),
+                     out_path=options.get("out") or None)
 
     # -- a generator --------------------------------------------------------
     if spec.startswith("synthetic:"):

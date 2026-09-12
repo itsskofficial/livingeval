@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "livingeval"
-version = "0.1.0"
-description = "Eval suites that tell you when they've gone blind: coverage, detection power and judge-depth for LLM agent evaluation."
+version = "0.2.0"
+description = "Point livingeval at your codebase and it writes the eval suite: metrics, golden sets, drift and a three-valued CI gate."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
@@ -56,6 +56,11 @@ fireworks = ["fireworks-ai>=0.15"]
 serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 postgres = ["psycopg2-binary>=2.9"]
 aws = ["boto3>=1.34"]
+
+# Generated suites call DeepEval for the metric implementations. Optional
+# because `livingeval scan` and `livingeval init` need none of it -- only
+# running the emitted suite does, and the emitted suite says so.
+deepeval = ["deepeval>=1.0"]
 
 figures = ["matplotlib>=3.7"]
 yaml = ["pyyaml>=6.0"]
@@ -113,7 +118,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = ["E501", "B008", "RUF012"]
 
 [tool.mypy]
-python_version = "3.10"
+# Deliberately unpinned. Pinning it to 3.10 while CI runs 3.12 made mypy parse
+# numpy's stubs under 3.10 rules, where their `type` statements are a syntax
+# error and checking stops before reaching any of this project's code.
 warn_unused_ignores = false
 ignore_missing_imports = true
 disallow_untyped_defs = false
@@ -138,6 +145,13 @@ name = "Analysis layers stack downward only"
 type = "layers"
 layers = [
     "livingeval.cli",
+    "livingeval.wizard",
+    "livingeval.sync",
+    "livingeval.drift",
+    "livingeval.baseline",
+    "livingeval.generate",
+    "livingeval.plan",
+    "livingeval.discover",
     "livingeval.serve",
     "livingeval.feedback",
     "livingeval.report",

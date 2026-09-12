@@ -24,6 +24,37 @@ GOLDEN = json.loads((Path(__file__).parent / "golden.json").read_text(encoding="
 TOL = 1e-6
 
 
+def _sklearn_matches() -> tuple[bool, str]:
+    """Whether the installed scikit-learn is the one these numbers came from.
+
+    Cross-validation folds, decision stumps and k-means all live in
+    scikit-learn, and a release can move them with the seed unchanged --
+    `StratifiedGroupKFold` did between 1.7 and 1.9, same `random_state`,
+    different folds, every cross-validated kappa shifted. Exact numbers are
+    only meaningful against the version that produced them.
+
+    So the sklearn-dependent goldens are skipped on a different version rather
+    than failed. A failure there would say livingeval regressed, which is not
+    what happened, and teams learn to ignore a check that cries wolf on every
+    dependency bump. What they do not skip on is the same version: there, an
+    exact mismatch is drift and is meant to stop the build.
+    """
+    import sklearn
+
+    recorded = GOLDEN["_config"].get("scikit_learn")
+    running = ".".join(sklearn.__version__.split(".")[:2])
+    if recorded is None:
+        return True, ""
+    return recorded == running, (
+        f"golden numbers were recorded under scikit-learn {recorded}, running "
+        f"{running}. Re-record with `python scripts/record_goldens.py` on this "
+        f"version if it is the one the project now targets")
+
+
+_SAME_SKLEARN, _WHY = _sklearn_matches()
+needs_recorded_sklearn = pytest.mark.skipif(not _SAME_SKLEARN, reason=_WHY)
+
+
 @pytest.fixture(scope="module")
 def fixture():
     traces = syn.shortcut(n=300, seed=42)
@@ -39,6 +70,7 @@ def test_generator_output_is_byte_stable(fixture):
     assert suite.content_hash() == GOLDEN["suite_content_hash"]
 
 
+@needs_recorded_sklearn
 def test_ladder_is_stable(fixture):
     traces, judge, _ = fixture
     result = le.scorer.ladder(traces, judge, n_boot=200, seed=42)
@@ -47,6 +79,7 @@ def test_ladder_is_stable(fixture):
         assert rung.kappa.point == pytest.approx(GOLDEN["ladder_kappa"][rung.name], abs=TOL)
 
 
+@needs_recorded_sklearn
 def test_judge_validation_is_stable(fixture):
     traces, judge, _ = fixture
     result = le.judge.validate(judge, traces, n_boot=200, seed=42)
@@ -54,6 +87,7 @@ def test_judge_validation_is_stable(fixture):
     assert result.kappa.point == pytest.approx(GOLDEN["judge_kappa"], abs=TOL)
 
 
+@needs_recorded_sklearn
 def test_clustering_and_coverage_are_stable(fixture):
     traces, _, suite = fixture
     space = le.mine.Space.fit(traces, seed=42)

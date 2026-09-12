@@ -23,15 +23,34 @@ What survived the rethink is the *shape* each of them took:
 | embeddings | first-class, but the default stays tf-idf and `compare-spaces` measures whether that costs you anything |
 | fine-tuning | rung 5, opt-in, flagged `is_diagnostic=False`, with a note wherever its number appears |
 
+## What changed in v0.2
+
+Two entries below said this library would never write evals or run your
+application. Both were wrong, and for the same reason: they described the
+*measurement* honestly and then assumed somebody else would do the authoring.
+Almost nobody does. Authoring is where teams stall, and a tool that measures
+suites while refusing to help you build one serves the small population that
+already has the thing it needs.
+
+So `livingeval init` scans a codebase and writes the suite, and the generated
+harness calls your application. What survived the rethink is the constraint:
+nothing reference-based is ever filled in automatically, because a suite
+harvested from the current system's output certifies today's behaviour as
+correct by definition. See `plan/taxonomy.py` and `generate/goldens.py`.
+
+The measurement half is unchanged and is still the reason to use this rather
+than a test generator.
+
 ## Still deliberately out of scope
 
 - **Multi-tenancy, auth, hosting.** The platform is a control surface for your machine.
   Adding tenants is the point at which this competes with four funded companies instead
   of measuring something none of them measure. See [DECISIONS.md #25](DECISIONS.md).
-- **Running your agent.** `livingeval` reads traces. What produced them is your problem
-  and there are better tools for it.
-- **A general assertion library.** `assert "sorry" not in response` is not this
-  library's job.
+- **Being the metric implementation.** Faithfulness and the rest are already
+  correct in DeepEval; the generated suites call it. Reimplementing them would
+  be a worse version of somebody else's solved problem.
+- **Writing your golden answers.** The inputs are generated, the answers are
+  yours. See above for why.
 - **A scheduler.** Analyses run on request. Coverage over 20k traces takes seconds; a
   scheduler would add configuration surface and a class of "why is this number stale"
   bug in exchange for nothing at this size.

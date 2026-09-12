@@ -122,7 +122,6 @@ def evaluate(
     the legacy gate and ignores the baseline entirely; it is here so the audit can
     measure what it costs.
     """
-    outcomes, groups = current.gate_view()
     score = current.score
     reasons: list[str] = []
     blind: list[str] = []
