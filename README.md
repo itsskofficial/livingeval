@@ -378,6 +378,28 @@ stability:
    per-case data: run `livingeval baseline --runs 10` to measure them
 ```
 
+And it will tell you when a test could not have fired at all. Loosening the
+grounding instruction in a real support assistant's system prompt dropped scope
+adherence from 0.883 to 0.550 across a six-case set. The p-value was 0.5:
+
+```
+- application.scope_adherence   0.883 ->  0.550  within noise  p=0.500 q=1.000
+                                                 (too few cases to reach significance)
+
+   13 of 16 metrics have too few cases for the paired test to reach
+   significance at any effect size — application.scope_adherence moved 0.333
+   the wrong way and still could not be called. Add cases to those golden sets,
+   or read their movement against the measured noise threshold instead
+```
+
+Nothing was wrong with the p-value. Exact McNemar is a two-sided sign test over
+the cases that *changed*, so with four disagreements the smallest p available is
+0.125 — no effect of any size makes that test fire. Every metric carries the
+floor of its own test, and where the floor sits above alpha the gate says so
+rather than printing a phrase that reads as reassurance. This is what "detection
+power" means when it is computed exactly instead of simulated, and it is why the
+generated suite tells you to add cases.
+
 ### See it work on bundled data
 
 ```sh
