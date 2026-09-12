@@ -336,7 +336,7 @@ def cmd_sync(args) -> int:
     protect = set() if args.force else set(edited)
     metrics = [m for p in plan.pipelines for m in p.metrics]
     goldens = build_goldens(metrics, scope=manifest.scope or "this product")
-    emission = emit(plan, goldens, root, judge=manifest.judge.split(":", 1)[-1],
+    emission = emit(plan, goldens, root, judge=manifest.judge or "openai:gpt-4o-mini",
                     scope=manifest.scope, protect=protect)
 
     print()
@@ -478,8 +478,22 @@ def cmd_promote(args) -> int:
     from livingeval import feedback
     from livingeval.store import open_store
 
-    result = feedback.promote(open_store(args.db), args.suite, max_cases=args.max_cases)
+    store = open_store(args.db)
+    result = feedback.promote(store, args.suite, max_cases=args.max_cases)
     print(result.summary())
+
+    # The store suite is not the suite most people run. `init` writes golden
+    # sets under livingeval_evals/, and a confirmation that stops at the store
+    # leaves those exactly as generated -- which breaks the one loop that makes
+    # any of this living. So the confirmed cases go there too, when it exists.
+    package = Path(args.path) / "livingeval_evals"
+    if package.exists():
+        from livingeval.generate.adopt import adopt_into_goldens
+
+        adopted = adopt_into_goldens(package, store.confirmed_cases(args.suite),
+                                     default_target=args.into)
+        print()
+        print(adopted.summary())
     return 0
 
 
@@ -809,7 +823,8 @@ def build_parser() -> argparse.ArgumentParser:
     def common(sp, traces=True, suite=False, judge=False):
         if traces:
             sp.add_argument("--traces", required=True,
-                            help="a .jsonl glob, an OTel/Langfuse .json, or synthetic:drifting,n=1200")
+                            help="a .jsonl glob, an OTel/Langfuse .json, "
+                                 "langfuse:limit=500, or synthetic:drifting,n=1200")
         if suite:
             sp.add_argument("--suite", required=True, help="path to a suite JSON")
         if judge:
@@ -875,10 +890,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="does the generated suite still cover your traffic")
     sp.add_argument("--path", default=".")
     sp.add_argument("--traces", required=True,
-                    help="a .jsonl glob, a Langfuse/OTel export, or a store DSN")
+                    help="a .jsonl glob, a Langfuse/OTel export, langfuse:limit=500 "
+                         "to pull from a live project, or a store DSN")
     sp.add_argument("--top", type=int, default=5)
     sp.add_argument("--include-probes", action="store_true",
-                    help="count synthetic safety probes as coverage (overstates it)")
+                    help="count this tool's own generated cases as coverage "
+                         "(overstates it)")
     sp.add_argument("--seed", type=int, default=0)
     sp.add_argument("--out", default=None)
     sp.set_defaults(func=cmd_drift)
@@ -957,6 +974,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--db", default="sqlite:///livingeval.db")
     sp.add_argument("--suite", default="default")
     sp.add_argument("--max-cases", type=int, default=None, help="retire oldest beyond this")
+    sp.add_argument("--path", default=".",
+                    help="repository root, for a generated livingeval_evals/ suite")
+    sp.add_argument("--into", default="application.correctness",
+                    help="golden set for cases that name no metric of their own")
     sp.set_defaults(func=cmd_promote)
 
     sp = sub.add_parser("export", help="write human-confirmed labels as fine-tuning data")
