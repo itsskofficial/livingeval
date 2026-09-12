@@ -118,7 +118,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = ["E501", "B008", "RUF012"]
 
 [tool.mypy]
-python_version = "3.10"
+# Deliberately unpinned. Pinning it to 3.10 while CI runs 3.12 made mypy parse
+# numpy's stubs under 3.10 rules, where their `type` statements are a syntax
+# error and checking stops before reaching any of this project's code.
 warn_unused_ignores = false
 ignore_missing_imports = true
 disallow_untyped_defs = false
