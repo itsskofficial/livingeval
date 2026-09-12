@@ -243,6 +243,18 @@ def compare(baseline: dict, candidate: dict, registry: dict,
                      f"compared ({', '.join(sorted(skipped)[:3])}"
                      f"{'...' if len(skipped) > 3 else ''})")
 
+    # A metric that produced no number in *either* run is in neither set above
+    # and would otherwise pass unremarked -- which is the quietest way for a
+    # suite to stop measuring something. The runs say why each one is missing;
+    # the gate repeats it rather than deciding without it.
+    never = {**baseline.get("unmeasured", {}), **candidate.get("unmeasured", {})}
+    never = {k: v for k, v in never.items() if k not in shared}
+    if never:
+        listed = "; ".join(f"{k} ({v})" for k, v in sorted(never.items())[:3])
+        blind.append(f"{len(never)} planned metric(s) produced no number in "
+                     f"either run: {listed}"
+                     f"{'; ...' if len(never) > 3 else ''}")
+
     # FAIL first: a suite that caught a regression has done its job, and
     # downgrading that to BLIND because the thresholds are shaky would suppress
     # a real signal.

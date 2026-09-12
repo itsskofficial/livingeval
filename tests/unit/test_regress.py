@@ -204,3 +204,17 @@ def test_measured_thresholds_turn_blind_into_pass(tmp_path):
                    run({"workflow.faithfulness": 0.9}), unmeasured).verdict == "BLIND"
     assert compare(run({"workflow.faithfulness": 0.9}),
                    run({"workflow.faithfulness": 0.9}), registry()).verdict == "PASS"
+
+
+def test_a_metric_that_produced_no_number_in_either_run_is_blind_not_silent():
+    """It appears in neither run, so it is in neither the shared set nor the
+    symmetric difference -- the quietest way for a suite to stop measuring
+    something. The runner already knows why; the gate repeats it."""
+    base = {"metrics": {"application.toxicity": 0.9},
+            "unmeasured": {"application.correctness": "awaiting reference answers"}}
+    cand = {"metrics": {"application.toxicity": 0.9},
+            "unmeasured": {"application.correctness": "awaiting reference answers"}}
+    report = compare(base, cand, registry())
+    assert report.verdict == "BLIND"
+    assert any("application.correctness" in note for note in report.blind)
+    assert any("awaiting reference answers" in note for note in report.blind)
