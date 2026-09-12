@@ -509,7 +509,7 @@ Every choice, and the alternative that was rejected, is recorded in [DECISIONS.m
 
 * Calibrated judge ensembles with abstention
 
-See [ROADMAP.md](./ROADMAP.md) for what v0.1 deliberately does not do, and why.
+See [ROADMAP.md](./ROADMAP.md) for what this deliberately does not do, and why.
 
 ## Contributing
 

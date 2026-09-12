@@ -159,12 +159,15 @@ def measure_drift(package: Path, traces: TraceSet, top: int = 5,
 
     if len(suite) == 0:
         notes.append(
-            "every reference case is still an unanswered placeholder, so there is "
-            "nothing real for traffic to sit near. Replace the inputs in "
-            "livingeval_evals/goldens/ with questions your users actually ask -- "
-            "from production traffic if you have it -- and write the answers. "
-            "Or pass --include-probes to measure against the synthetic probes, "
-            "which will understate coverage.")
+            "every case in this suite was written by livingeval -- safety probes "
+            "and generated inputs -- and every reference case is still an "
+            "unanswered placeholder. There is nothing here that came from a real "
+            "user, so there is nothing for real traffic to sit near. Replace the "
+            "inputs in livingeval_evals/goldens/ with questions your users "
+            "actually ask, or let `livingeval serve` and `livingeval promote` "
+            "bring them in from these traces. Passing --include-probes measures "
+            "against what the tool wrote, which understates coverage and answers "
+            "a different question.")
         return DriftReport(None, len(traces), 0, probes, notes=notes)
 
     if len(traces) == 0:
