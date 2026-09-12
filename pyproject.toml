@@ -57,6 +57,11 @@ serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 postgres = ["psycopg2-binary>=2.9"]
 aws = ["boto3>=1.34"]
 
+# Generated suites call DeepEval for the metric implementations. Optional
+# because `livingeval scan` and `livingeval init` need none of it -- only
+# running the emitted suite does, and the emitted suite says so.
+deepeval = ["deepeval>=1.0"]
+
 figures = ["matplotlib>=3.7"]
 yaml = ["pyyaml>=6.0"]
 dev = [
@@ -138,6 +143,10 @@ name = "Analysis layers stack downward only"
 type = "layers"
 layers = [
     "livingeval.cli",
+    "livingeval.wizard",
+    "livingeval.generate",
+    "livingeval.plan",
+    "livingeval.discover",
     "livingeval.serve",
     "livingeval.feedback",
     "livingeval.report",

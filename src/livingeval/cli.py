@@ -61,6 +61,43 @@ def _load_traces(spec: str):
 # ---------------------------------------------------------------------------
 
 
+def cmd_init(args) -> int:
+    """Scan, plan, explain, and write a suite. The front door."""
+    from livingeval.wizard import run_init
+    return run_init(Path(args.path), assume_yes=args.yes, dry_run=args.dry_run,
+                    include_tests=args.include_tests)
+
+
+def cmd_scan(args) -> int:
+    """Report what is there without writing anything."""
+    from livingeval.discover import scan
+    from livingeval.plan import build_plan
+
+    sites = scan(Path(args.path), include_tests=args.include_tests)
+    if not sites:
+        print("no LLM call sites found")
+        return 1
+    plan = build_plan(sites)
+    print(plan.summary())
+    print()
+    for site in sites:
+        print(f"{site.path}:{site.line}  {site.function}()")
+        print(f"    {site.provider} -> {site.archetype} ({site.confidence:.0%} confident)")
+        if args.explain:
+            for reason in site.rationale:
+                print(f"      - {reason}")
+    if args.explain:
+        print()
+        for pipeline in plan.pipelines:
+            print(f"{pipeline.slug}  [{pipeline.level.value}/{pipeline.risk.value}]")
+            for metric in pipeline.metrics:
+                flag = " " if metric.automatable else "*"
+                print(f"   {flag} {metric.name:<24} {metric.catches}")
+        print()
+        print("   * needs a reference answer you write")
+    return 0
+
+
 def cmd_coverage(args) -> int:
     from livingeval import mine
     from livingeval.suite import EvalSuite
@@ -612,6 +649,21 @@ def build_parser() -> argparse.ArgumentParser:
                             help="rule:mod:fn | oracle[:noise] | openai:model | anthropic:model")
         sp.add_argument("--seed", type=int, default=0)
         sp.add_argument("--out", default=None, help="write a result record here")
+
+    sp = sub.add_parser("init", help="scan a codebase and write an eval suite")
+    sp.add_argument("--path", default=".", help="repository root (default: .)")
+    sp.add_argument("--yes", action="store_true",
+                    help="take every default; report what was assumed")
+    sp.add_argument("--dry-run", action="store_true", help="plan and explain, write nothing")
+    sp.add_argument("--include-tests", action="store_true",
+                    help="scan test files too (usually mocks, so off by default)")
+    sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser("scan", help="list the LLM call sites and what they need")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--explain", action="store_true", help="show the reasoning")
+    sp.add_argument("--include-tests", action="store_true")
+    sp.set_defaults(func=cmd_scan)
 
     sp = sub.add_parser("coverage", help="how much of your traffic does this suite represent")
     common(sp, suite=True)

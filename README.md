@@ -49,11 +49,86 @@
 
 ## About The Project
 
-Every team evaluating an LLM agent has converged on the same recipe: curate a golden set once, score it with an LLM judge, fail CI below a threshold. The suite reports a number. It does not report whether that number still means anything.
+**Point it at your repository. It writes the evals.**
 
-**livingeval** adds the three measurements that decide. **Coverage** is the share of today's traffic that sits near something the suite actually contains, using a radius calibrated from the suite's own spread rather than a constant somebody picked. **Detection power** is the probability the gate turns red under a regression you *name*, established by simulation and always reported alongside its false-alarm rate. **Judge depth** is the cheapest scorer that reproduces your LLM judge — if a keyword rule matches it, the judge was decoration, and the tool says so.
+```sh
+pip install livingeval
+livingeval init
+```
 
-The gate is three-valued rather than two. `PASS (0)`, `FAIL (1)`, and `BLIND (2)`, because "no regression detected, and this suite could not have detected one" is a different claim from "no regression" and CI should be able to treat it differently.
+It reads your code, finds every LLM call, works out what each one *is* — a RAG
+pipeline, a structured extractor, a classifier, an agent — and writes the eval
+suite that shape of thing needs. It explains every choice as it goes, asks you
+about the handful of things it genuinely cannot know, and never invents an
+answer it should have asked for.
+
+On a typical RAG application, one call site produces:
+
+```
+1 call site -> 7 pipelines, 22 metrics (18 runnable now, 4 awaiting golden answers)
+
+  eval_retriever_quality        contextual_recall, contextual_precision
+  eval_generator_quality        faithfulness, answer_relevancy
+  eval_workflow_quality         faithfulness, answer_relevancy, contextual_relevance
+  eval_application_quality      correctness, completeness, instruction_following, style
+  eval_application_safety       toxicity, pii_leakage, prompt_leakage, scope_adherence,
+                                injection_resistance, over_refusal
+  eval_application_operational  latency_p95, time_to_first_token, cost_per_query, error_rate
+```
+
+**18 of those run before you write a single line.** Everything reference-free —
+grounding, relevance, safety, latency, cost — needs only inputs and a rubric,
+and both are derivable. The other four need a human, and are written as stubs
+with the inputs filled in and the answer column deliberately empty.
+
+That last point is the one that matters. The easy way to generate a "complete"
+suite is to run your code and record what it says. That builds a suite which
+passes because the cases were harvested from what the model already does — a
+change detector wearing a correctness test's clothes. livingeval will not do it,
+and says so in the file.
+
+### Why these evals and not others
+
+Every generated file explains itself, and `livingeval scan --explain` shows the
+reasoning before anything is written:
+
+```
+myapp/rag.py:14  answer()
+    openai -> rag (50% confident)
+      - retrieval before generation (store.similarity_search)
+
+eval_workflow_quality  [workflow/quality]
+     faithfulness             grounding failures that only appear on real retrieved context
+     contextual_relevance     noise inside chunks that are themselves relevant -- high
+                              precision beside low relevance means the chunks are too big
+```
+
+The decision procedure is written down in
+[docs/decision-framework.md](docs/decision-framework.md): where an eval goes
+(component, workflow, application), which risk it covers (quality, safety,
+operational), which metric measures it, how it is executed (programmatic,
+model-graded, human), and whether it needs a reference answer. The catalogue is
+[data, not code](src/livingeval/plan/taxonomy.py), so you can read the whole
+thing and disagree with it.
+
+### And then the part nobody else does
+
+A suite tells you your scores changed. It cannot tell you whether the change was
+real, whether it could have caught the regression at all, or whether it still
+describes your traffic. livingeval measures all three.
+
+**Coverage** is the share of today's traffic sitting near something the suite
+contains, at a radius calibrated from the suite's own spread rather than a
+constant somebody picked. **Detection power** is the probability the gate turns
+red under a regression you *name*, established by simulation and always reported
+beside its false-alarm rate. **Judge depth** is the cheapest scorer that
+reproduces your LLM judge — if a keyword rule matches it, the judge was
+decoration, and the tool says so.
+
+So the gate is three-valued rather than two. `PASS (0)`, `FAIL (1)`, and
+`BLIND (2)`, because "no regression detected, and this suite could not have
+detected one" is a different claim from "no regression", and CI should be able
+to treat them differently.
 
 ```
 -> BLIND  (exit 2)
@@ -62,7 +137,10 @@ The gate is three-valued rather than two. `PASS (0)`, `FAIL (1)`, and `BLIND (2)
    simulated detection power 1.2% is below 80% for the regression tested
 ```
 
-Measuring the gap is only half of it. The platform mines real traces from the clusters your suite cannot see, queues them for a human to confirm, and merges the confirmed ones back into the suite — which is what makes it *living* rather than a linter.
+Measuring the gap is only half of it. The platform mines real traces from the
+clusters your suite cannot see, queues them for a human to confirm, and merges
+the confirmed ones back into the suite — which is what makes it *living* rather
+than a linter.
 
 ## Built With
 
@@ -157,6 +235,28 @@ Follow these steps to set up the project locally.
    Nothing is required to run locally. The keys are for things with no local equivalent — a hosted LLM judge, a hosted trace store — and every feature that does not need them works without them.
 
 ## Usage
+
+### Write a suite for your codebase
+
+```sh
+livingeval scan --explain        # what is there, and what it would write
+livingeval init                  # interactive: judge, scope, then generate
+livingeval init --yes            # take every default, report what was assumed
+```
+
+`init` asks about four things and decides the rest: which model grades the
+judgement-based metrics, its API key (written to `.env`, never committed),
+what the assistant is *for* — scope adherence and over-refusal are unmeasurable
+without it — and any call site it could not classify confidently.
+
+It writes `livingeval_evals/`: one file per pipeline, the datasets, a metric
+registry with direction and noise tolerance, a suite runner, and `WHY.md`
+explaining every choice.
+
+```sh
+python -m livingeval_evals.run_suite     # run it, write a baseline
+livingeval gate                          # PASS / FAIL / BLIND against that baseline
+```
 
 ### See it work on bundled data
 
