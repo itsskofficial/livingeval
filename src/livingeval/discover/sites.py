@@ -21,7 +21,7 @@ an LLM call nobody evaluates is exactly what this tool exists to find.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 __all__ = ["CallSite", "Evidence", "scan_file", "scan_tree"]
@@ -62,6 +62,17 @@ CHAT_MODEL_CTORS = {
     "ChatOllama", "ChatCohere", "ChatMistralAI", "ChatBedrock", "ChatVertexAI",
     "AzureChatOpenAI", "ChatLiteLLM", "OpenAI", "Anthropic", "LlamaCPP",
     "HuggingFaceEndpoint", "ChatHuggingFace",
+}
+
+# Things that are not chat models but are invoked exactly like one: a compiled
+# graph, an agent executor. Tracked alongside the chat models because the call
+# site is `agent.ainvoke(...)` either way, and in an agent codebase that is
+# where every model call lives.
+RUNNABLE_CTORS = {
+    "StateGraph", "MessageGraph", "Graph", "AgentExecutor",
+    "create_react_agent", "create_tool_calling_agent", "initialize_agent",
+    "create_openai_functions_agent", "create_structured_chat_agent",
+    "LLMChain", "ConversationChain", "RetrievalQA",
 }
 
 INVOKE_METHODS = {"invoke", "ainvoke", "stream", "astream", "batch", "abatch",
@@ -226,8 +237,13 @@ class _FunctionVisitor(ast.NodeVisitor):
                 match = next((c for c in candidates if c in self.imports), None)
                 if match:
                     return match
-        # A runnable built from a chat model, invoked.
-        if tail in INVOKE_METHODS and len(chain) >= 2 and chain[0] in self.chat_models:
+        # A runnable built from a chat model, invoked. Any segment before the
+        # method may be the tracked name, not just the first: `self.llm` and
+        # `self._deps.chat` are how these objects are actually held, and
+        # matching only chain[0] finds `llm.invoke()` in a script while missing
+        # every call in a class.
+        if tail in INVOKE_METHODS and len(chain) >= 2 and any(
+                part in self.chat_models for part in chain[:-1]):
             return "langchain"
         return None
 
@@ -266,6 +282,21 @@ class _ModuleVisitor(ast.NodeVisitor):
         self.sites: list[CallSite] = []
 
     def collect_bindings(self, tree: ast.AST) -> None:
+        """Run to a fixed point.
+
+        One pass is source order, and source order is not definition order: a
+        method that builds a graph is usually written below the method that
+        calls it, so `chain = workflow.compile()` is seen before anything knows
+        what `workflow` is. Repeating until nothing new is learned costs two or
+        three walks of a file and finds the sites that matter.
+        """
+        for _ in range(4):
+            before = len(self.chat_models)
+            self._bind_once(tree)
+            if len(self.chat_models) == before:
+                return
+
+    def _bind_once(self, tree: ast.AST) -> None:
         for node in ast.walk(tree):
             # Every segment and bound name of every import. Provider
             # resolution needs the vocabulary of the file, not its dependency
@@ -284,8 +315,8 @@ class _ModuleVisitor(ast.NodeVisitor):
                         self.imports.add(alias.asname)
             # x = ChatOpenAI(...)  -- and chains like ChatOpenAI(...).bind_tools(...)
             if isinstance(node, ast.Assign):
-                ctor = self._ctor_name(node.value)
-                if ctor in CHAT_MODEL_CTORS:
+                ctor = self._ctor_name(node.value) or self._derived_from(node.value)
+                if ctor in CHAT_MODEL_CTORS | RUNNABLE_CTORS or ctor == "_derived":
                     for target in node.targets:
                         if isinstance(target, ast.Name):
                             self.chat_models.add(target.id)
@@ -314,6 +345,33 @@ class _ModuleVisitor(ast.NodeVisitor):
         )
         return (len(fields), labelled)
 
+    def _derived_from(self, node: ast.AST | None) -> str | None:
+        """"_derived" if this expression is built out of a chat model already
+        tracked, otherwise None.
+
+        Two idioms, both ubiquitous and both invisible to `_ctor_name`, which
+        only looks for a constructor:
+
+            chain = prompt | llm | parser        # LCEL, a BinOp
+            bound = llm.bind_tools(tools)        # a builder rooted at a name
+
+        Missing them means missing `chain.ainvoke(...)`, which in a LangChain
+        codebase is where nearly every model call happens.
+        """
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            if (self._derived_from(node.left) or self._derived_from(node.right)):
+                return "_derived"
+            return None
+        if isinstance(node, ast.Call):
+            if self._ctor_name(node):
+                return "_derived"
+            return self._derived_from(node.func)
+        if isinstance(node, ast.Attribute):
+            return self._derived_from(node.value)
+        if isinstance(node, ast.Name):
+            return "_derived" if node.id in self.chat_models else None
+        return None
+
     def _ctor_name(self, node: ast.AST | None) -> str | None:
         """The chat-model constructor at the root of an expression, if any.
 
@@ -324,7 +382,7 @@ class _ModuleVisitor(ast.NodeVisitor):
         """
         while isinstance(node, ast.Call):
             chain = _dotted(node.func)
-            if chain and chain[-1] in CHAT_MODEL_CTORS:
+            if chain and chain[-1] in CHAT_MODEL_CTORS | RUNNABLE_CTORS:
                 return chain[-1]
             node = node.func.value if isinstance(node.func, ast.Attribute) else None
         return None
@@ -397,5 +455,19 @@ def scan_tree(root: Path, include_tests: bool = False) -> list[CallSite]:
             or path.name.endswith("_test.py")
         ):
             continue
-        sites.extend(scan_file(path))
+        # Relative to the repository root, always. These paths are written
+        # into generated Python -- as a docstring, and as the dotted module the
+        # harness imports -- and an absolute Windows path is neither importable
+        # nor even parseable there: "C:\Users\..." is a truncated \U escape
+        # and the whole harness fails to compile.
+        sites.extend(
+            replace(site, path=_relative(site.path, root))
+            for site in scan_file(path))
     return sites
+
+
+def _relative(path: Path, root: Path) -> Path:
+    try:
+        return path.relative_to(root)
+    except ValueError:
+        return path

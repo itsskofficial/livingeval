@@ -282,3 +282,94 @@ def test_a_pure_label_schema_is_confidently_classification(tmp_path):
     ''')
     assert site.archetype == Archetype.CLASSIFICATION.value
     assert site.confidence >= 0.5
+
+
+# ---------------------------------------------------------------------------
+# how these objects are actually held
+# ---------------------------------------------------------------------------
+#
+# Every test below started as a call site the scanner missed in a real
+# repository -- gpt-researcher, ~5k Python lines of LangChain. Before them it
+# found two sites in the whole codebase and none of the ones that matter.
+
+
+def test_a_model_held_on_self_is_found(tmp_path):
+    """`self.llm.ainvoke(...)`. Matching only the root of the dotted chain
+    finds `llm.invoke()` in a script and misses every call in a class, which
+    is where production code keeps these."""
+    site = only(tmp_path, "service.py", '''
+        from langchain_openai import ChatOpenAI
+
+        class Researcher:
+            def __init__(self):
+                self.llm = ChatOpenAI(model="gpt-4o-mini")
+
+            async def summarise(self, messages):
+                return await self.llm.ainvoke(messages)
+    ''')
+    assert site.provider == "langchain"
+    assert site.function == "summarise"
+
+
+def test_an_lcel_pipeline_is_a_call_site(tmp_path):
+    """`chain = prompt | llm | parser` is the LangChain idiom, and
+    `chain.ainvoke(...)` is where nearly every model call in such a codebase
+    happens. A scanner that only recognises constructors sees none of them."""
+    site = only(tmp_path, "chain.py", '''
+        from langchain_openai import ChatOpenAI
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+
+        async def plan(task):
+            prompt = ChatPromptTemplate.from_template("{task}")
+            model = ChatOpenAI(model="gpt-4o")
+            chain = prompt | model | StrOutputParser()
+            return await chain.ainvoke({"task": task})
+    ''')
+    assert site.provider == "langchain"
+
+
+def test_a_bound_model_is_still_the_model(tmp_path):
+    site = only(tmp_path, "tools.py", '''
+        from langchain_openai import ChatOpenAI
+
+        async def act(messages, tools):
+            llm = ChatOpenAI(model="gpt-4o")
+            llm_with_tools = llm.bind_tools(tools)
+            return await llm_with_tools.ainvoke(messages)
+    ''')
+    assert site.provider == "langchain"
+
+
+def test_a_compiled_graph_is_a_call_site(tmp_path):
+    """LangGraph. The thing invoked is not a chat model at all, but the call
+    site is `graph.ainvoke(...)` exactly as if it were."""
+    site = only(tmp_path, "graph.py", '''
+        from langgraph.graph import StateGraph
+
+        async def run(state):
+            workflow = StateGraph(dict)
+            graph = workflow.compile()
+            return await graph.ainvoke(state)
+    ''')
+    assert site.provider == "langchain"
+
+
+def test_a_binding_defined_below_its_use_is_still_found(tmp_path):
+    """Source order is not definition order. A helper that builds the graph is
+    conventionally written below the method that calls it, so a single pass
+    reaches `workflow.compile()` before it knows what `workflow` is."""
+    site = only(tmp_path, "late.py", '''
+        from langgraph.graph import StateGraph
+
+        class Editor:
+            async def run(self, state):
+                workflow = self._build()
+                chain = workflow.compile()
+                return await chain.ainvoke(state)
+
+            def _build(self):
+                workflow = StateGraph(dict)
+                return workflow
+    ''')
+    assert site.function == "run"
