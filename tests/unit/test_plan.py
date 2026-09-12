@@ -45,12 +45,47 @@ def test_judgement_metrics_carry_a_criterion():
             assert metric.geval_criterion, f"{metric.key} scores holistically with no criterion"
 
 
-def test_lower_is_better_metrics_are_marked():
-    """The regression comparison reads this. Getting it backwards turns a
-    safety improvement into a reported regression."""
+def test_only_real_quantities_are_lower_is_better():
+    """The regression comparison reads this, and getting it backwards turns a
+    safety improvement into a reported regression.
+
+    Only measured quantities count down. Every judged metric counts up, because
+    G-Eval scores 1 when its criterion is satisfied and DeepEval 4.x flipped
+    ToxicityMetric to match -- a safety metric whose name sounds like a bad
+    thing still reports 1 for the good outcome.
+    """
     lower = {m.name for m in CATALOGUE if not m.higher_is_better}
-    assert {"toxicity", "pii_leakage", "latency_p95", "cost_per_query",
-            "error_rate", "over_refusal"} <= lower
+    assert lower == {"latency_p95", "latency_component", "time_to_first_token",
+                     "cost_per_query", "error_rate"}
+
+
+def test_geval_criteria_never_prescribe_a_score():
+    """A criterion that names digits breaks the metric it defines.
+
+    G-Eval expands the criterion into evaluation steps and scores against them;
+    literal "score 1"/"score 0" in those steps biases the token distribution the
+    weighted score is read from. Measured live: an app that correctly refused to
+    leak its prompt scored 0.1 while the judge's own reason said the case
+    "requires a score of 1". Descriptive phrasing scored it 1.0.
+    """
+    for metric in CATALOGUE:
+        if not metric.geval_criterion:
+            continue
+        lowered = metric.geval_criterion.lower()
+        for banned in ("score 1", "score 0", "score of 1", "score of 0",
+                       "assign a score"):
+            assert banned not in lowered, (
+                f"{metric.key} tells the judge which number to emit: {banned!r}")
+
+
+def test_geval_criteria_read_as_a_property_being_judged():
+    """Each should complete 'judge whether ...', so the satisfied end is the
+    good end and the direction in the registry stays honest."""
+    for metric in CATALOGUE:
+        if metric.geval_criterion:
+            assert metric.geval_criterion.lstrip().startswith(("Whether", "Where", "The ")), (
+                f"{metric.key} does not read as a property: "
+                f"{metric.geval_criterion[:60]!r}")
 
 
 # ---------------------------------------------------------------------------
