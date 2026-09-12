@@ -254,8 +254,37 @@ registry with direction and noise tolerance, a suite runner, and `WHY.md`
 explaining every choice.
 
 ```sh
-python -m livingeval_evals.run_suite     # run it, write a baseline
-livingeval gate                          # PASS / FAIL / BLIND against that baseline
+python -m livingeval_evals.run_suite     # run it, write baseline.json
+livingeval baseline --runs 10            # measure real noise thresholds
+# ... change something ...
+python -m livingeval_evals.run_suite     # writes candidate.json
+livingeval gate                          # PASS (0) / FAIL (1) / BLIND (2)
+```
+
+`gate` compares every metric, direction-aware, and where the suite recorded
+per-case outcomes it runs exact McNemar on them rather than comparing against a
+threshold. Twenty-two metrics is twenty-two tests, so it corrects across the
+family with Benjamini-Hochberg — uncorrected, a suite that size manufactures a
+false alarm most runs, which is how teams learn to ignore their own gate.
+
+```
+-> FAIL  (exit 1)
+   workflow.faithfulness fell 0.3500 (p=0.000, q=0.011): grounding failures
+   that only appear on real retrieved context
+
+  - workflow.faithfulness       0.900 ->  0.550  REGRESSED     p=0.000 q=0.011
+    application.toxicity        0.150 ->  0.150  within noise  p=1.000 q=1.000
+```
+
+Until `livingeval baseline` has measured the real spread, metrics without
+per-case data are compared against shipped estimates, and the gate returns
+**BLIND rather than PASS** — comparing against a guess is not evidence of
+stability:
+
+```
+-> BLIND  (exit 2)
+   4 of 22 metrics were compared against estimated noise thresholds with no
+   per-case data: run `livingeval baseline --runs 10` to measure them
 ```
 
 ### See it work on bundled data

@@ -178,7 +178,7 @@ CASES = load_cases({[m.key for m in pipeline.metrics]!r})
 
 
 def run() -> dict:
-    """Score this pipeline. Returns {{metric_key: value}} for the suite runner."""
+    """Score this pipeline. See `harness.run_pipeline` for the shape."""
     return run_pipeline(NAME, METRICS, CASES)
 
 
@@ -249,24 +249,29 @@ def local_metric(key: str):
 
 
 def run_pipeline(name: str, metrics: list, cases: dict) -> dict:
-    """Score one pipeline and return {{metric_key: value}}.
+    """Score one pipeline.
 
-    Local metrics are measured here; DeepEval metrics are delegated. Timings are
-    collected for every call regardless, because operational numbers are free
-    once you are already running the suite.
+    Returns {{"metrics": {{key: mean}}, "cases": {{key: [per-case rows]}}}}.
+
+    The per-case rows are what make the comparison a *test* rather than a
+    threshold: `livingeval gate` runs exact McNemar on the paired pass/fail
+    outcomes and corrects across the family of metrics. Aggregates alone can
+    only be compared against a guessed noise band.
     """
     from deepeval import evaluate
     from deepeval.test_case import LLMTestCase
 
-    results: dict[str, float] = {{}}
+    scores: dict[str, list[float]] = {{}}
+    rows: dict[str, list[dict]] = {{}}
     latencies: list[float] = []
 
-    for key, rows in cases.items():
-        test_cases = []
-        for row in rows:
+    for key, case_rows in cases.items():
+        test_cases, ids = [], []
+        for row in case_rows:
             started = time.perf_counter()
             output = call_app(row["input"])
             latencies.append(time.perf_counter() - started)
+            ids.append(row["id"])
             test_cases.append(LLMTestCase(
                 input=row["input"],
                 actual_output=output.get("answer", ""),
@@ -274,17 +279,25 @@ def run_pipeline(name: str, metrics: list, cases: dict) -> dict:
                 expected_output=row.get("expected"),
             ))
         scored = [m for m in metrics if not isinstance(m, dict)]
-        if test_cases and scored:
-            report = evaluate(test_cases=test_cases, metrics=scored)
-            for metric_result in getattr(report, "test_results", []):
-                for data in getattr(metric_result, "metrics_data", []):
-                    results.setdefault(data.name, []).append(data.score or 0.0)
+        if not (test_cases and scored):
+            continue
+        report = evaluate(test_cases=test_cases, metrics=scored)
+        for case_id, result in zip(ids, getattr(report, "test_results", [])):
+            for data in getattr(result, "metrics_data", []):
+                scores.setdefault(data.name, []).append(data.score or 0.0)
+                rows.setdefault(data.name, []).append({{
+                    "id": case_id,
+                    "score": data.score,
+                    "passed": bool(data.success),
+                    "reason": getattr(data, "reason", None),
+                }})
 
-    aggregated = {{k: sum(v) / len(v) for k, v in results.items() if v}}
+    aggregated = {{k: sum(v) / len(v) for k, v in scores.items() if v}}
     if latencies:
         ordered = sorted(latencies)
         aggregated["application.latency_p95"] = ordered[int(len(ordered) * 0.95) - 1]
-    return aggregated
+        aggregated["application.latency_mean"] = sum(latencies) / len(latencies)
+    return {{"metrics": aggregated, "cases": rows}}
 '''
 
 TARGET_KNOWN = '''def call_app(question: str) -> dict:
@@ -496,7 +509,12 @@ def emit(plan: Plan, goldens: dict[str, GoldenSet], root: Path,
 
     registry = {
         m.key: {"direction": "higher" if m.higher_is_better else "lower",
-                "noise": m.noise_hint, "risk": m.risk.value,
+                "noise": m.noise_hint,
+                # False until `livingeval baseline` measures the real spread.
+                # The gate returns BLIND rather than PASS while this is False,
+                # because comparing against a guess is not evidence of stability.
+                "measured": False,
+                "risk": m.risk.value,
                 "catches": m.catches}
         for p in plan.pipelines for m in p.metrics
     }

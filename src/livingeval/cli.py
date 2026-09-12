@@ -11,6 +11,7 @@ own branch rather than folding it into green.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -187,7 +188,56 @@ def cmd_power(args) -> int:
     return 0
 
 
+def _generated_package(path: str) -> Path | None:
+    """The generated suite under `path`, or None if `init` has not run there."""
+    package = Path(path) / "livingeval_evals"
+    return package if (package / "run_suite.py").exists() else None
+
+
+def cmd_baseline(args) -> int:
+    """Measure real noise thresholds by running the suite unchanged."""
+    from livingeval.baseline import MIN_RUNS, measure, update_registry
+
+    package = _generated_package(args.path)
+    if package is None:
+        print(f"no generated suite under {args.path}. Run `livingeval init` first.")
+        return 1
+    if args.runs < MIN_RUNS:
+        print(f"--runs must be at least {MIN_RUNS}; below that the spread is less "
+              f"reliable than the shipped estimate.")
+        return 1
+
+    print(f"running the suite {args.runs} times with nothing changed")
+    print("this is what costs money: N runs is N times the API bill of one")
+    print()
+    measurements, last = measure(package, args.runs)
+    if not measurements:
+        print("no metric appeared in every run; nothing could be measured")
+        return 1
+
+    print()
+    for measurement in measurements.values():
+        print(measurement.line)
+
+    updated = update_registry(package / "metric_registry.py", measurements)
+    baseline_path = package / "baseline.json"
+    baseline_path.write_text(json.dumps(last, indent=2), encoding="utf-8")
+
+    print()
+    print(f"  {updated} thresholds measured and written to metric_registry.py")
+    print("  baseline.json written from the last run")
+    print()
+    print("  `livingeval gate` will now compare against measured noise "
+          "instead of returning BLIND.")
+    return 0
+
+
 def cmd_gate(args) -> int:
+    # With no --suite, gate the generated suite: baseline.json vs candidate.json.
+    # One verdict command for both flows, rather than making the user learn
+    # which subcommand matches which artifact.
+    if not args.suite:
+        return _gate_generated(args)
     from livingeval import gate as G
     from livingeval.suite import EvalSuite
 
@@ -229,6 +279,36 @@ def cmd_gate(args) -> int:
         report.save([result, current], args.out)
         print(f"\nwrote {args.out}")
     return result.exit_code
+
+
+def _gate_generated(args) -> int:
+    from livingeval.gate.regress import compare, load_run
+
+    package = _generated_package(args.path)
+    if package is None:
+        print("pass --suite for a trace-based gate, or run `livingeval init` "
+              "to generate one from your codebase.")
+        return 1
+
+    baseline_path = package / "baseline.json"
+    candidate_path = package / "candidate.json"
+    for path in (baseline_path, candidate_path):
+        if not path.exists():
+            print(f"{path.name} is missing. Run the suite twice:")
+            print("  python -m livingeval_evals.run_suite")
+            return 1
+
+    namespace: dict = {}
+    exec(compile((package / "metric_registry.py").read_text(encoding="utf-8"),
+                 "metric_registry.py", "exec"), namespace)
+
+    report = compare(load_run(baseline_path), load_run(candidate_path),
+                     namespace["REGISTRY"], alpha=args.alpha)
+    print(report.render())
+    if args.out:
+        Path(args.out).write_text(json.dumps(report.as_dict(), indent=2),
+                                  encoding="utf-8")
+    return report.exit_code
 
 
 def cmd_audit(args) -> int:
@@ -693,8 +773,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--n-sim", type=int, default=300)
     sp.set_defaults(func=cmd_power)
 
+    sp = sub.add_parser("baseline",
+                        help="measure real noise thresholds for a generated suite")
+    sp.add_argument("--path", default=".")
+    sp.add_argument("--runs", type=int, default=6,
+                    help="runs with nothing changed (minimum 4, more is better)")
+    sp.set_defaults(func=cmd_baseline)
+
     sp = sub.add_parser("gate", help="PASS (0), FAIL (1) or BLIND (2)")
-    sp.add_argument("--suite", required=True)
+    sp.add_argument("--suite", default=None,
+                    help="a suite JSON; omit to gate the generated suite")
+    sp.add_argument("--path", default=".", help="repository root, for the generated suite")
+    sp.add_argument("--alpha", type=float, default=0.05,
+                    help="false-discovery rate across the family of metrics")
     sp.add_argument("--judge", default="oracle")
     sp.add_argument("--baseline", default=None, help="a record written by a previous gate run")
     sp.add_argument("--traces", default=None, help="production traces, to compute coverage")
